@@ -4,14 +4,13 @@ import pandas_ta as ta
 import asyncio
 import time
 import os
-import csv
 from datetime import datetime
 from telegram import Bot
 
 # Railway Variables üzerinden bilgileri çeker
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
-EXCHANGE_ID = 'mexc' # MEXC veya Gate.io için değiştirilebilir
+EXCHANGE_ID = 'mexc' 
 
 class CryptoBot:
     def __init__(self):
@@ -20,23 +19,17 @@ class CryptoBot:
             'options': {'defaultType': 'swap'}
         })
         self.bot = Bot(token=TELEGRAM_TOKEN)
-        self.daily_signal_count = 0
-        self.last_reset_date = datetime.now().date()
 
     async def get_data(self, symbol, timeframe):
         try:
             # Veri Çekme
-            ohlcv = await asyncio.to_thread(self.exchange.fetch_ohlcv, symbol, timeframe, limit=200)
+            ohlcv = await asyncio.to_thread(self.exchange.fetch_ohlcv, symbol, timeframe, limit=100)
             df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
             
-            # İndikatör Hesaplamaları
-            df['ema9'] = ta.ema(df['close'], length=9)
+            # İndikatörler
             df['ema50'] = ta.ema(df['close'], length=50)
             df['ema200'] = ta.ema(df['close'], length=200)
             df['rsi'] = ta.rsi(df['close'], length=14)
-            df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-            df['vol_avg'] = ta.sma(df['volume'], length=20)
-            
             macd = ta.macd(df['close'])
             df['macd'] = macd['MACD_12_26_9']
             df['macd_s'] = macd['MACDs_12_26_9']
@@ -45,99 +38,66 @@ class CryptoBot:
         except Exception as e:
             return None
 
-    def check_strategy(self, df_5m, df_1h):
-        l_5m = df_5m.iloc[-1]
-        l_1h = df_1h.iloc[-1]
-        
-        # Trend Onayı
-        trend_up = l_1h['ema50'] > l_1h['ema200']
-        trend_down = l_1h['ema50'] < l_1h['ema200']
+    def calculate_targets(self, side, price):
+        # %2 Kar Al, %1 Zarar Durdur (Kaldıraçsız oranlar)
+        if side == "LONG":
+            tp = price * 1.02
+            sl = price * 0.99
+        else:
+            tp = price * 0.98
+            sl = price * 1.01
+        return round(tp, 6), round(sl, 6)
 
-        # LONG Şartları
-        long_cond = (
-            trend_up and l_5m['ema50'] > l_5m['ema200'] and
-            45 <= l_5m['rsi'] <= 60 and l_5m['macd'] > l_5m['macd_s'] and
-            l_5m['volume'] > l_5m['vol_avg']
-        )
-
-        # SHORT Şartları
-        short_cond = (
-            trend_down and l_5m['ema50'] < l_5m['ema200'] and
-            40 <= l_5m['rsi'] <= 55 and l_5m['macd'] < l_5m['macd_s'] and
-            l_5m['volume'] > l_5m['vol_avg']
-        )
-
-        if long_cond: return "LONG"
-        if short_cond: return "SHORT"
-        return None
-
-    async def send_signal(self, data):
-        msg = (
-            f"━━━━━━━━━━━━━━━\n"
-            f"🚀 **YENİ SİNYAL: {data['symbol']}**\n"
-            f"📈 Yön: {data['side']}\n"
-            f"🎯 Giriş: {data['entry']:.5f}\n"
-            f"🏆 TP1: {data['tp1']:.5f} | TP2: {data['tp2']:.5f}\n"
-            f"🛑 Stop Loss: {data['sl']:.5f}\n"
-            f"📊 RSI: {data['rsi']:.1f}\n"
-            f"⚖ Risk/Reward: 1:2.0\n"
-            f"━━━━━━━━━━━━━━━"
-        )
+    async def check_signals(self):
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Tarama başlatıldı...")
         try:
-            await self.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-            print(f"✅ Telegram sinyali gönderildi: {data['symbol']}")
+            markets = await asyncio.to_thread(self.exchange.load_markets)
+            symbols = [s for s in markets if '/USDT' in s][:50] # İlk 50 hacimli coin
+
+            for symbol in symbols:
+                df_5m = await self.get_data(symbol, '5m')
+                df_1h = await self.get_data(symbol, '1h')
+
+                if df_5m is None or df_1h is None or len(df_5m) < 50: continue
+
+                l5 = df_5m.iloc[-1]
+                l1 = df_1h.iloc[-1]
+
+                # Güvenlik Kontrolü (NoneType hatasını önler)
+                if pd.isna(l5['rsi']) or pd.isna(l5['ema200']): continue
+
+                side = None
+                # LONG: 1H Trend Yukarı + 5M RSI 50-60 arası + MACD Kesişimi
+                if l1['ema50'] > l1['ema200'] and l5['ema50'] > l5['ema200']:
+                    if 45 < l5['rsi'] < 60 and l5['macd'] > l5['macd_s']:
+                        side = "LONG"
+
+                # SHORT: 1H Trend Aşağı + 5M RSI 40-50 arası + MACD Kesişimi
+                elif l1['ema50'] < l1['ema200'] and l5['ema50'] < l5['ema200']:
+                    if 40 < l5['rsi'] < 55 and l5['macd'] < l5['macd_s']:
+                        side = "SHORT"
+
+                if side:
+                    tp, sl = self.calculate_targets(side, l5['close'])
+                    msg = (f"🚀 **YENİ SİNYAL: {symbol}**\n"
+                           f"🔹 **Yön:** {side}\n"
+                           f"💰 **Giriş:** {l5['close']}\n"
+                           f"🎯 **Hedef (TP):** {tp}\n"
+                           f"🚫 **Stop (SL):** {sl}\n"
+                           f"⏰ **Zaman:** {datetime.now().strftime('%H:%M')}")
+                    await self.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+                    print(f"✅ Sinyal gönderildi: {symbol}")
+                    await asyncio.sleep(1) # Telegram spam engeli
+
         except Exception as e:
-            print(f"❌ Mesaj hatası: {e}")
+            print(f"❌ Döngü hatası: {e}")
 
-    async def run(self):
-        print(f"🤖 Bot {EXCHANGE_ID.upper()} üzerinde başlatıldı...")
+    async def main(self):
+        print("🤖 Bot MEXC üzerinde başlatıldı (TP/SL Aktif)...")
         while True:
-            try:
-                # Günlük sıfırlama
-                if datetime.now().date() > self.last_reset_date:
-                    self.daily_signal_count = 0
-                    self.last_reset_date = datetime.now().date()
-
-                # Marketleri al (Top 50 USDT-Perp)
-                markets = await asyncio.to_thread(self.exchange.fetch_markets)
-                symbols = [m['symbol'] for m in markets if m['active'] and m['linear']][:50]
-
-                for symbol in symbols:
-                    if self.daily_signal_count >= 6: break
-
-                    df_5m = await self.get_data(symbol, '5m')
-                    df_1h = await self.get_data(symbol, '1h')
-                    
-                    if df_5m is None or df_1h is None: continue
-
-                    side = self.check_strategy(df_5m, df_1h)
-                    
-                    if side:
-                        entry = df_5m['close'].iloc[-1]
-                        atr = df_5m['atr'].iloc[-1]
-                        sl_dist = atr * 1.5
-                        
-                        data = {
-                            'symbol': symbol.split(':')[0],
-                            'side': side,
-                            'entry': entry,
-                            'sl': entry - sl_dist if side == "LONG" else entry + sl_dist,
-                            'tp1': entry + sl_dist if side == "LONG" else entry - sl_dist,
-                            'tp2': entry + (sl_dist * 2) if side == "LONG" else entry - (sl_dist * 2),
-                            'rsi': df_5m['rsi'].iloc[-1]
-                        }
-                        
-                        await self.send_signal(data)
-                        self.daily_signal_count += 1
-                        await asyncio.sleep(2) # Spam koruması
-
-                print(f"Tarama bitti. 5 dakika bekleniyor... ({datetime.now().strftime('%H:%M:%S')})")
-                await asyncio.sleep(300)
-
-            except Exception as e:
-                print(f"Döngü hatası: {e}")
-                await asyncio.sleep(60)
+            await self.check_signals()
+            print("😴 Tarama bitti. 5 dakika bekleniyor...")
+            await asyncio.sleep(300)
 
 if __name__ == "__main__":
-    bot = CryptoBot()
-    asyncio.run(bot.run())
+    asyncio.run(CryptoBot().main())
