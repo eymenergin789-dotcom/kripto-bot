@@ -111,7 +111,7 @@ async def main():
     # TEST MESAJI:
     send_telegram_msg("🚀 *Sniper Bot Yayında!* \nŞu an borsa verilerini taramaya başladım. Bağlantı başarılı!")
     
-    while True:
       
+
 
 
