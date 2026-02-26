@@ -1,103 +1,108 @@
 import ccxt
 import pandas as pd
-import pandas_ta as ta
 import asyncio
 import time
 import os
+import requests
 from datetime import datetime
-from telegram import Bot
 
-# Railway Variables üzerinden bilgileri çeker
+# --- AYARLAR (Railway Değişkenlerinden Alır) ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHAT_ID = os.getenv('CHAT_ID')
-EXCHANGE_ID = 'mexc' 
+TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
+EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
-class CryptoBot:
-    def __init__(self):
-        self.exchange = getattr(ccxt, EXCHANGE_ID)({
-            'enableRateLimit': True,
-            'options': {'defaultType': 'swap'}
-        })
-        self.bot = Bot(token=TELEGRAM_TOKEN)
+VOL_THRESHOLD = 500000    # 24s Hacmi 500k USDT altı olanları taramaz
+VOL_MULTIPLIER = 2.5      # Hacim, son 20 mumun ortalamasından 2.5 kat büyük olmalı
+TP_PERCENT = 0.012        # %1.2 Kar Al
+SL_PERCENT = 0.007        # %0.7 Zarar Durdur
 
-    async def get_data(self, symbol, timeframe):
+def send_telegram_msg(message):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Telegram Hatası: {e}")
+
+def fiyat_format(fiyat):
+    if fiyat < 0.0001: return f"{fiyat:.8f}"
+    if fiyat < 1: return f"{fiyat:.6f}"
+    return f"{fiyat:.4f}"
+
+def performans_kontrol(df):
+    success = 0
+    trades = 0
+    for i in range(20, len(df) - 30):
+        v_spike = df['v'].iloc[i] > (df['v'].iloc[i-10:i].mean() * 1.5)
+        if v_spike and df['c'].iloc[i] < df['c'].iloc[i-1]:
+            entry = df['c'].iloc[i]
+            tp, sl = entry * (1 + TP_PERCENT), entry * (1 - SL_PERCENT)
+            trades += 1
+            for j in range(i + 1, len(df)):
+                if df['h'].iloc[j] >= tp: 
+                    success += 1
+                    break
+                if df['l'].iloc[j] <= sl: 
+                    break
+        if trades >= 10: break 
+    return success, trades
+
+async def main():
+    print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
+    send_telegram_msg("🎯 *SNIPER ELITE v2.0 Aktif!* \nStrateji: Hacim Patlaması + Başarı Karne Kontrolü")
+    
+    while True:
         try:
-            # Veri Çekme
-            ohlcv = await asyncio.to_thread(self.exchange.fetch_ohlcv, symbol, timeframe, limit=100)
-            df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+            markets = EXCHANGE.load_markets()
+            tickers = EXCHANGE.fetch_tickers()
+            pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
             
-            # İndikatörler
-            df['ema50'] = ta.ema(df['close'], length=50)
-            df['ema200'] = ta.ema(df['close'], length=200)
-            df['rsi'] = ta.rsi(df['close'], length=14)
-            macd = ta.macd(df['close'])
-            df['macd'] = macd['MACD_12_26_9']
-            df['macd_s'] = macd['MACDs_12_26_9']
+            for s in pariteler[:100]: # İlk 100 hacimli parite
+                try:
+                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=100) 
+                    df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+                    avg_v = df['v'].rolling(window=20).mean().iloc[-1]
+                    last, prev = df.iloc[-1], df.iloc[-2]
+
+                    side = None
+                    if last['v'] > (avg_v * VOL_MULTIPLIER):
+                        if last['c'] < prev['c']: side = "LONG"
+                        elif last['c'] > prev['c']: side = "SHORT"
+
+                    if side:
+                        tp_count, total_count = performans_kontrol(df)
+                        # Başarı şartı: 10 işlemde en az 7 başarı (veya elindeki veriye göre)
+                        if total_count >= 5 and tp_count >= 3:
+                            p_s = fiyat_format(last['c'])
+                            raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
+                            raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
+                            
+                            emoji = "🚀" if side == "LONG" else "📉"
+                            basari_yuzdesi = int((tp_count / total_count) * 100)
+                            
+                            tg_msg = (
+                                f"🎯 *SNIPER SİNYAL ONAYLANDI*\n\n"
+                                f"{emoji} *Parite:* {s}\n"
+                                f"⚖️ *Yön:* {side}\n"
+                                f"💰 *Giriş:* {p_s}\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"✅ *HEDEF (TP):* {fiyat_format(raw_tp)}\n"
+                                f"❌ *STOP (SL):* {fiyat_format(raw_sl)}\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"📊 *Geçmiş Başarı:* %{basari_yuzdesi} ({tp_count}/{total_count})"
+                            )
+                            send_telegram_msg(tg_msg)
+                            print(f"✅ Sinyal Gönderildi: {s}")
+                            await asyncio.sleep(2) # Spam engeli
+                except:
+                    continue
             
-            return df
+            print("😴 Tarama tamamlandı, 1 dakika bekleniyor...")
+            await asyncio.sleep(60) # 1 dakikada bir tara ( Sniper olduğu için daha hızlı)
+            
         except Exception as e:
-            return None
-
-    def calculate_targets(self, side, price):
-        # %2 Kar Al, %1 Zarar Durdur (Kaldıraçsız oranlar)
-        if side == "LONG":
-            tp = price * 1.02
-            sl = price * 0.99
-        else:
-            tp = price * 0.98
-            sl = price * 1.01
-        return round(tp, 6), round(sl, 6)
-
-    async def check_signals(self):
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Tarama başlatıldı...")
-        try:
-            markets = await asyncio.to_thread(self.exchange.load_markets)
-            symbols = [s for s in markets if '/USDT' in s][:50] # İlk 50 hacimli coin
-
-            for symbol in symbols:
-                df_5m = await self.get_data(symbol, '5m')
-                df_1h = await self.get_data(symbol, '1h')
-
-                if df_5m is None or df_1h is None or len(df_5m) < 50: continue
-
-                l5 = df_5m.iloc[-1]
-                l1 = df_1h.iloc[-1]
-
-                # Güvenlik Kontrolü (NoneType hatasını önler)
-                if pd.isna(l5['rsi']) or pd.isna(l5['ema200']): continue
-
-                side = None
-                # LONG: 1H Trend Yukarı + 5M RSI 50-60 arası + MACD Kesişimi
-                if l1['ema50'] > l1['ema200'] and l5['ema50'] > l5['ema200']:
-                    if 45 < l5['rsi'] < 60 and l5['macd'] > l5['macd_s']:
-                        side = "LONG"
-
-                # SHORT: 1H Trend Aşağı + 5M RSI 40-50 arası + MACD Kesişimi
-                elif l1['ema50'] < l1['ema200'] and l5['ema50'] < l5['ema200']:
-                    if 40 < l5['rsi'] < 55 and l5['macd'] < l5['macd_s']:
-                        side = "SHORT"
-
-                if side:
-                    tp, sl = self.calculate_targets(side, l5['close'])
-                    msg = (f"🚀 **YENİ SİNYAL: {symbol}**\n"
-                           f"🔹 **Yön:** {side}\n"
-                           f"💰 **Giriş:** {l5['close']}\n"
-                           f"🎯 **Hedef (TP):** {tp}\n"
-                           f"🚫 **Stop (SL):** {sl}\n"
-                           f"⏰ **Zaman:** {datetime.now().strftime('%H:%M')}")
-                    await self.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-                    print(f"✅ Sinyal gönderildi: {symbol}")
-                    await asyncio.sleep(1) # Telegram spam engeli
-
-        except Exception as e:
-            print(f"❌ Döngü hatası: {e}")
-
-    async def main(self):
-        print("🤖 Bot MEXC üzerinde başlatıldı (TP/SL Aktif)...")
-        while True:
-            await self.check_signals()
-            print("😴 Tarama bitti. 5 dakika bekleniyor...")
-            await asyncio.sleep(300)
+            print(f"Hata: {e}")
+            await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    asyncio.run(CryptoBot().main())
+    asyncio.run(main())
