@@ -7,8 +7,7 @@ import requests
 from datetime import datetime
 
 # --- AYARLAR (Railway Değişkenlerinden Alır) ---
-TELEGRAM_TOKEN = os.getenv('8674803905:AAFhfyn9f0Y7_sc0Ky8iwDzG
-pud9w9yTtZ0O')
+TELEGRAM_TOKEN = os.getenv('8674803905:AAFhfyn9f0Y7_sc0Ky8iwDzGpud9w9yTtZ0O')
 TELEGRAM_CHAT_ID = os.getenv('8448603504')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
@@ -113,6 +112,7 @@ async def main():
     send_telegram_msg("🚀 *Sniper Bot Yayında!* \nŞu an borsa verilerini taramaya başladım. Bağlantı başarılı!")
     
       
+
 
 
 
