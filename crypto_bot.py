@@ -16,14 +16,45 @@ VOL_MULTIPLIER = 2.5      # Hacim, son 20 mumun ortalamasından 2.5 kat büyük 
 TP_PERCENT = 0.012        # %1.2 Kar Al
 SL_PERCENT = 0.007        # %0.7 Zarar Durdur
 
+import requests
+import os
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 def send_telegram_msg(message):
+    if not TELEGRAM_TOKEN:
+        print("HATA: TELEGRAM_TOKEN boş!")
+        return
+
+    if not TELEGRAM_CHAT_ID:
+        print("HATA: TELEGRAM_CHAT_ID boş!")
+        return
+
     try:
-        # DİKKAT: Buradaki değişken isimleri yukarıdakiyle aynı olmalı
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-        requests.post(url, json=payload, timeout=5)
+
+        payload = {
+            "chat_id": int(TELEGRAM_CHAT_ID),   # int yapıyoruz garanti olsun
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+
+        response = requests.post(url, json=payload, timeout=10)
+
+        # Telegram cevabını log'a yaz
+        print("Telegram Status Code:", response.status_code)
+        print("Telegram Response:", response.text)
+
+        # Eğer Telegram hata dönerse
+        if response.status_code != 200:
+            print("Telegram mesaj gönderilemedi!")
+
+    except requests.exceptions.RequestException as e:
+        print("Bağlantı Hatası:", e)
+
     except Exception as e:
-        print(f"Telegram Hatası: {e}")
+        print("Genel Hata:", e)
         
 def fiyat_format(fiyat):
     if fiyat < 0.0001: return f"{fiyat:.8f}"
@@ -111,6 +142,7 @@ async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     # BU TEST SATIRINI EKLE:
     send_telegram_msg("✅ Bot başarıyla bağlandı! Piyasayı tarıyorum...")
+
 
 
 
