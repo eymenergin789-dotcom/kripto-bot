@@ -7,8 +7,8 @@ import requests
 from datetime import datetime
 
 # --- AYARLAR (Railway Değişkenlerinden Alır) ---
-TELEGRAM_TOKEN = os.getenv('8674803905:AAFhfyn9f0Y7_sc0Ky8iwDzGpud9w9yTtZ0O')
-TELEGRAM_CHAT_ID = os.getenv('8448603504')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 VOL_THRESHOLD = 500000    # 24s Hacmi 500k USDT altı olanları taramaz
@@ -18,12 +18,13 @@ SL_PERCENT = 0.007        # %0.7 Zarar Durdur
 
 def send_telegram_msg(message):
     try:
+        # DİKKAT: Buradaki değişken isimleri yukarıdakiyle aynı olmalı
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
         requests.post(url, json=payload, timeout=5)
     except Exception as e:
         print(f"Telegram Hatası: {e}")
-
+        
 def fiyat_format(fiyat):
     if fiyat < 0.0001: return f"{fiyat:.8f}"
     if fiyat < 1: return f"{fiyat:.6f}"
@@ -108,10 +109,9 @@ if __name__ == "__main__":
     asyncio.run(main())
 async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
-    # TEST MESAJI:
-    send_telegram_msg("🚀 *Sniper Bot Yayında!* \nŞu an borsa verilerini taramaya başladım. Bağlantı başarılı!")
-    
-      
+    # BU TEST SATIRINI EKLE:
+    send_telegram_msg("✅ Bot başarıyla bağlandı! Piyasayı tarıyorum...")
+
 
 
 
