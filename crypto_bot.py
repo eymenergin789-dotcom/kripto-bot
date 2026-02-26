@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- AYARLAR (Railway Değişkenlerinden Alır) ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('8448603504')
+TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 VOL_THRESHOLD = 500000    # 24s Hacmi 500k USDT altı olanları taramaz
@@ -106,5 +106,12 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+async def main():
+    print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
+    # TEST MESAJI:
+    send_telegram_msg("🚀 *Sniper Bot Yayında!* \nŞu an borsa verilerini taramaya başladım. Bağlantı başarılı!")
+    
+    while True:
+        # ... geri kalan kodlar ...
 
 
