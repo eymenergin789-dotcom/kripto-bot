@@ -7,8 +7,10 @@ import requests
 from datetime import datetime
 
 # --- AYARLAR (Railway Değişkenlerinden Alır) ---
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
+TELEGRAM_TOKEN = os.getenv('8647829608:AAFja9p4-
+
+b50YsV6GUGtRhsLV9bYlcH5wf8')
+TELEGRAM_CHAT_ID = os.getenv('8448603504')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 VOL_THRESHOLD = 500000    # 24s Hacmi 500k USDT altı olanları taramaz
@@ -106,3 +108,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
