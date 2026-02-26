@@ -112,6 +112,6 @@ async def main():
     send_telegram_msg("🚀 *Sniper Bot Yayında!* \nŞu an borsa verilerini taramaya başladım. Bağlantı başarılı!")
     
     while True:
-        # ... geri kalan kodlar ...
+      
 
 
