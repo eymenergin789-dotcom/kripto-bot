@@ -10,9 +10,8 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
-VOL_THRESHOLD = 500000    # 500k USDT altı hacimli coinleri pas geçer
-VOL_MULTIPLIER = 3.5      # Hacim normalin 3.5 katı olmalı (Güçlü patlama şartı)
-TP_PERCENT = 0.02        
+VOL_THRESHOLD = 500000    
+VOL_MULTIPLIER = 3.5      
 SL_PERCENT = 0.01        
 
 aktif_islemler = {} 
@@ -31,7 +30,6 @@ def fiyat_format(fiyat):
     if fiyat < 1: return f"{fiyat:.6f}"
     return f"{fiyat:.4f}"
 
-# Manuel RSI Hesaplama (Kütüphane hatasını engellemek için eklendi)
 def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -39,15 +37,13 @@ def calculate_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs.iloc[-1]))
 
-# --- TAKİP VE DETAYLI RAPORLAMA ---
+# --- TAKİP SİSTEMİ ---
 async def takip_sistemi():
     global gunluk_stats
-    print("🛠 Takip Sistemi ve Detaylı Raporlama Aktif.")
     while True:
         try:
             simdi = datetime.now()
             if simdi.strftime("%Y-%m-%d") != gunluk_stats["tarih"]:
-                toplam = gunluk_stats['tp'] + gunluk_stats['sl']
                 send_telegram_msg(f"📊 *GÜN SONU ÖZETİ*\n✅ TP: {gunluk_stats['tp']}\n❌ SL: {gunluk_stats['sl']}")
                 gunluk_stats = {"tp": 0, "sl": 0, "tarih": simdi.strftime("%Y-%m-%d")}
 
@@ -58,38 +54,35 @@ async def takip_sistemi():
                     curr_price = tickers[s]['last']
                     islem = aktif_islemler[s]
                     
-                    tp_hit = (islem['side'] == "LONG" and curr_price >= islem['tp']) or (islem['side'] == "SHORT" and curr_price <= islem['tp'])
-                    sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or (islem['side'] == "SHORT" and curr_price >= islem['sl'])
+                    # Sinyal sadece ilk TP1'e göre veya SL'ye göre kapanır
+                    tp_hit = (islem['side'] == "LONG" and curr_price >= islem['tp_targets'][0]) or \
+                             (islem['side'] == "SHORT" and curr_price <= islem['tp_targets'][0])
+                    sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
+                             (islem['side'] == "SHORT" and curr_price >= islem['sl'])
 
                     if tp_hit or sl_hit:
-                        durum = "✅ KÂR ALINDI (TP)" if tp_hit else "❌ STOP OLUNDU (SL)"
                         if tp_hit: gunluk_stats["tp"] += 1
                         else: gunluk_stats["sl"] += 1
                         
-                        # Net Yüzdelik Kazanç/Kayba Göre Hesap
                         degisim = ((curr_price - islem['entry']) / islem['entry']) * 100
                         if islem['side'] == "SHORT": degisim = -degisim
                         
-                        rapor_msg = (
-                            f"{durum}\n"
+                        rapor = (
+                            f"{'✅ *HEDEF GÖRÜLDÜ (TP)*' if tp_hit else '❌ *STOP OLUNDU (SL)*'}\n"
                             f"━━━━━━━━━━━━━━━\n"
-                            f"📍 Parite: {s}\n"
-                            f"⚖️ Yön: {islem['side']}\n"
-                            f"💰 Giriş: {fiyat_format(islem['entry'])}\n"
-                            f"🏁 Çıkış: {fiyat_format(curr_price)}\n"
-                            f"📉 Net Sonuç: %{degisim:.2f}\n"
-                            f"⏰ Saat: {datetime.now().strftime('%H:%M:%S')}\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"📊 Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
+                            f"🪙 *Coin:* #{s.replace(':USDT', '')}\n"
+                            f"💰 *Çıkış:* {fiyat_format(curr_price)}\n"
+                            f"📈 *Net:* %{degisim:.2f}\n"
+                            f"📊 *Günlük:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
                         )
-                        send_telegram_msg(rapor_msg)
+                        send_telegram_msg(rapor)
                         aktif_islemler.pop(s)
             await asyncio.sleep(2)
         except: await asyncio.sleep(5)
 
+# --- TARAMA DÖNGÜSÜ (YENİ FORMAT) ---
 async def tarama_dongusu():
-    print("🎯 SNIPER ELITE v2.6 Başlatıldı...")
-    send_telegram_msg("🚀 *Sniper v2.6 Aktif!* \nFiltreler sıkılaştırıldı, detaylı raporlama devrede.")
+    send_telegram_msg("🎯 *Sniper v2.7 Aktif!*\nProfesyonel sinyal formatı devrede.")
     while True:
         try:
             EXCHANGE.load_markets()
@@ -106,19 +99,33 @@ async def tarama_dongusu():
                     rsi_val = calculate_rsi(df['c'])
                     last, prev = df.iloc[-1], df.iloc[-2]
 
-                    # Sıkılaştırılmış Giriş Şartları
                     if last['v'] > (avg_v * VOL_MULTIPLIER):
                         side = None
                         if last['c'] > prev['c'] and 45 < rsi_val < 65: side = "LONG"
                         elif last['c'] < prev['c'] and 35 < rsi_val < 55: side = "SHORT"
 
                         if side:
-                            raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
-                            raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
+                            entry = last['c']
+                            # TP Hedefleri: %0.5, %1.0, %1.5, %2.0
+                            mult = 1 if side == "LONG" else -1
+                            targets = [entry * (1 + (mult * p)) for p in [0.005, 0.01, 0.015, 0.02]]
+                            sl = entry * (1 - (mult * SL_PERCENT))
                             
-                            aktif_islemler[s] = {'side': side, 'entry': last['c'], 'tp': raw_tp, 'sl': raw_sl}
+                            aktif_islemler[s] = {'side': side, 'entry': entry, 'tp_targets': targets, 'sl': sl}
                             
-                            send_telegram_msg(f"🚀 *YENİ SİNYAL:* {s}\nYön: {side}\nGiriş: {fiyat_format(last['c'])}\nRSI: {int(rsi_val)}")
+                            # İSTEDİĞİN SİNYAL FORMATI
+                            sinyal_msg = (
+                                f"📊 *Coin:* #{s.replace(':USDT', '')} USDT\n"
+                                f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n\n"
+                                f"🔸 *Fiyat:* {fiyat_format(entry)}\n\n"
+                                f"🎯 *TP1:* {fiyat_format(targets[0])}\n"
+                                f"🎯 *TP2:* {fiyat_format(targets[1])}\n"
+                                f"🎯 *TP3:* {fiyat_format(targets[2])}\n"
+                                f"🎯 *TP4:* {fiyat_format(targets[3])}\n"
+                                f"⛔️ *Stop:* {fiyat_format(sl)}\n\n"
+                                f"📱 *RSI:* {int(rsi_val)}"
+                            )
+                            send_telegram_msg(sinyal_msg)
                 except: continue
             await asyncio.sleep(60)
         except: await asyncio.sleep(10)
