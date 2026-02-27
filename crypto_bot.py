@@ -1,4 +1,3 @@
-import customtkinter as ctk
 import ccxt
 import pandas as pd
 import threading
@@ -40,16 +39,13 @@ class CryptoApp(ctk.CTk):
         self.active_trades = []
         self.daily_report = {"TP": 0, "SL": 0, "profit": 0.0}
 
-        self.header = ctk.CTkLabel(self, text="💰 MONEY MANAGER & 2R SNIPER",
-                                    font=("Impact", 34), text_color="#FFCC00")
+        self.header = ctk.CTkLabel(self, text="💰 MONEY MANAGER & 2R SNIPER", font=("Impact", 34), text_color="#FFCC00")
         self.header.pack(pady=15)
 
-        self.signal_frame = ctk.CTkScrollableFrame(self, width=950, height=550,
-                                                   label_text="Risk Hesaplamalı Sinyaller")
+        self.signal_frame = ctk.CTkScrollableFrame(self, width=950, height=550, label_text="Risk Hesaplamalı Sinyaller")
         self.signal_frame.pack(pady=10, padx=20)
 
-        self.status_label = ctk.CTkLabel(self, text="Kasa Yönetimi Aktif: 400$ | Risk: %2",
-                                         font=("Consolas", 14))
+        self.status_label = ctk.CTkLabel(self, text="Kasa Yönetimi Aktif: 400$ | Risk: %2", font=("Consolas", 14))
         self.status_label.pack(side="bottom", fill="x", pady=10)
 
         threading.Thread(target=self.run_logic, daemon=True).start()
@@ -168,6 +164,7 @@ class CryptoApp(ctk.CTk):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
 
