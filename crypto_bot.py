@@ -224,14 +224,15 @@ def trade_takip(self):
             f"💵 Toplam Kâr/Zarar: {self.daily_report['profit']:.2f}$"
         )
         send_telegram_msg(msg)
-def gun_sonu_raporu_otomatik(self):
+
+    def gun_sonu_raporu_otomatik(self):
         while True:
             try:
                 now = datetime.now()
                 if now.hour == 23 and now.minute == 59:
                     self.gun_sonu_raporu()
-                    time.sleep(60)  # Aynı raporu tekrar göndermesin
-                time.sleep(10)  # Her 10 saniyede saati kontrol et
+                    time.sleep(60)
+                time.sleep(10)
             except:
                 time.sleep(10)
 
@@ -239,6 +240,7 @@ def gun_sonu_raporu_otomatik(self):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
 
