@@ -5,7 +5,12 @@ import time
 import os
 import requests
 from datetime import datetime
-
+# --- GÜNLÜK RAPOR TAKİBİ ---
+DAILY_REPORT = {
+    "TP": 0,
+    "SL": 0,
+    "profit": 0.0
+}
 # --- AYARLAR (Railway Değişkenlerinden Alır) ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -78,10 +83,38 @@ def performans_kontrol(df):
                     break
         if trades >= 10: break 
     return success, trades
-
+async def gun_sonu_raporu_otomatik():
+    while True:
+        now = datetime.now()
+        if now.hour == 23 and now.minute == 59:
+            msg = (
+                f"📊 *GÜN SONU RAPORU*\n"
+                f"✅ TP Sayısı: {DAILY_REPORT['TP']}\n"
+                f"🛑 SL Sayısı: {DAILY_REPORT['SL']}\n"
+                f"💵 Toplam Kâr/Zarar: {DAILY_REPORT['profit']:.2f}$"
+            )
+            send_telegram_msg(msg)
+            await asyncio.sleep(60)  # Tekrar göndermesin
+        await asyncio.sleep(10)
 async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     send_telegram_msg("🎯 *SNIPER ELITE v2.0 Aktif!* \nStrateji: Hacim Patlaması + Başarı Karne Kontrolü")
+    async def gun_sonu_raporu_otomatik():
+    while True:
+        try:
+            now = datetime.now()
+            if now.hour == 23 and now.minute == 59:
+                msg = (
+                    f"📊 *GÜN SONU RAPORU*\n"
+                    f"✅ TP Sayısı: {DAILY_REPORT['TP']}\n"
+                    f"🛑 SL Sayısı: {DAILY_REPORT['SL']}\n"
+                    f"💵 Toplam Kâr/Zarar: {DAILY_REPORT['profit']:.2f}$"
+                )
+                send_telegram_msg(msg)
+                await asyncio.sleep(60)  # Aynı raporu tekrar göndermesin
+            await asyncio.sleep(10)  # Her 10 saniyede saati kontrol et
+        except:
+            await asyncio.sleep(10)
     
     while True:
         try:
@@ -125,6 +158,9 @@ async def main():
                             )
                             send_telegram_msg(tg_msg)
                             print(f"✅ Sinyal Gönderildi: {s}")
+                         # --- GÜNLÜK RAPOR GÜNCELLEME ---
+        DAILY_REPORT["TP"] += 1
+        DAILY_REPORT["profit"] += (raw_tp - last['c']) * DEFAULT_LEVERAGE if side=="LONG" else (last['c'] - raw_tp) * DEFAULT_LEVERAGE
                             await asyncio.sleep(2) # Spam engeli
                 except:
                     continue
@@ -142,3 +178,4 @@ async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     # BU TEST SATIRINI EKLE:
     send_telegram_msg("✅ Bot başarıyla bağlandı! Piyasayı tarıyorum...")
+
