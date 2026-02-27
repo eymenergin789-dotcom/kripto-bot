@@ -82,10 +82,11 @@ class CryptoApp:
         send_telegram_msg("🚀 *KASA YÖNETİMLİ BOT BAŞLATILDI*\nCüzdan: 400$ | Risk: %2")
         try:
             EXCHANGE.load_markets()
-            tickers = EXCHANGE.fetch_tickers()
-            pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
-        except:
-            return
+    tickers = EXCHANGE.fetch_tickers()
+    pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
+except Exception as e:
+    send_telegram_msg(f"❌ Bot başlatılamadı: {e}")
+    return
 
         while True:
             for s in pariteler:
@@ -203,6 +204,7 @@ if __name__ == "__main__":
     app = CryptoApp()
     while True:
         time.sleep(1)
+
 
 
 
