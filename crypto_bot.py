@@ -6,13 +6,13 @@ import os
 import requests
 from datetime import datetime
 
-# --- AYARLAR (Railway Değişkenlerinden Alır) ---
+# --- AYARLAR ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
-VOL_THRESHOLD = 500000    
-VOL_MULTIPLIER = 2.5      
+VOL_THRESHOLD = 50000     # Filtreyi iyice açtım, küçük hacimli ama hareketli pariteler gelsin
+VOL_MULTIPLIER = 1.2      # Normalden biraz fazla hacim yeterli (Sinyal yağmuruna hazır ol)
 TP_PERCENT = 0.02        
 SL_PERCENT = 0.01        
 
@@ -21,38 +21,19 @@ aktif_islemler = {}
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now().strftime("%Y-%m-%d")}
 
 def send_telegram_msg(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": int(TELEGRAM_CHAT_ID), "text": message, "parse_mode": "Markdown"}
         requests.post(url, json=payload, timeout=10)
-    except:
-        pass
+    except: pass
 
 def fiyat_format(fiyat):
     if fiyat < 0.0001: return f"{fiyat:.8f}"
     if fiyat < 1: return f"{fiyat:.6f}"
     return f"{fiyat:.4f}"
 
-def performans_kontrol(df):
-    success, trades = 0, 0
-    for i in range(20, len(df) - 30):
-        v_spike = df['v'].iloc[i] > (df['v'].iloc[i-10:i].mean() * 1.5)
-        if v_spike and df['c'].iloc[i] < df['c'].iloc[i-1]:
-            entry = df['c'].iloc[i]
-            tp, sl = entry * (1 + TP_PERCENT), entry * (1 - SL_PERCENT)
-            trades += 1
-            for j in range(i + 1, len(df)):
-                if df['h'].iloc[j] >= tp: 
-                    success += 1
-                    break
-                if df['l'].iloc[j] <= sl: 
-                    break
-        if trades >= 10: break 
-    return success, trades
-
-# --- TAKİP SİSTEMİ (GÜN SONU RAPORU DAHİL) ---
+# --- TAKİP SİSTEMİ (TP/SL HABERCİSİ) ---
 async def takip_sistemi():
     global gunluk_stats
     print("🛠 Takip Sistemi ve Gün Sonu Raporu Aktif.")
@@ -61,67 +42,42 @@ async def takip_sistemi():
             simdi = datetime.now()
             bugun_tarih = simdi.strftime("%Y-%m-%d")
 
-            # --- GECE YARISI GÜN SONU RAPORU ---
+            # Gün Sonu Raporu (00:00'da)
             if bugun_tarih != gunluk_stats["tarih"]:
-                # Önce eski günün raporunu gönder
-                basari_orani = 0
                 toplam = gunluk_stats['tp'] + gunluk_stats['sl']
-                if toplam > 0:
-                    basari_orani = int((gunluk_stats['tp'] / toplam) * 100)
-
-                rapor_msg = (
-                    f"📊 *GÜN SONU RAPORU ({gunluk_stats['tarih']})*\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"✅ Toplam TP: {gunluk_stats['tp']}\n"
-                    f"❌ Toplam SL: {gunluk_stats['sl']}\n"
-                    f"📈 Başarı Oranı: %{basari_orani}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🚀 Yeni gün için sayaçlar sıfırlandı!"
-                )
-                send_telegram_msg(rapor_msg)
-                
-                # Sayaçları sıfırla
+                msg = f"📊 *GÜN SONU RAPORU*\n✅ TP: {gunluk_stats['tp']}\n❌ SL: {gunluk_stats['sl']}\n📈 Toplam İşlem: {toplam}"
+                send_telegram_msg(msg)
                 gunluk_stats = {"tp": 0, "sl": 0, "tarih": bugun_tarih}
 
-            # --- 15 DAKİKALIK DURUM KONTROLÜ ---
-            if simdi.minute % 15 == 0 and simdi.second < 5:
-                takip_listesi = ", ".join(aktif_islemler.keys()) if aktif_islemler else "Yok"
-                send_telegram_msg(f"📝 *Sistem Kontrolü*\nTakip Edilen: {takip_listesi}\nAnlık Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
-                await asyncio.sleep(5)
-
-            # --- TP/SL TAKİBİ ---
+            # TP/SL Kontrolü
             if aktif_islemler:
-                semboller = list(aktif_islemler.keys())
-                tickers = EXCHANGE.fetch_tickers(semboller)
-                
-                for s in semboller:
+                tickers = EXCHANGE.fetch_tickers(list(aktif_islemler.keys()))
+                for s in list(aktif_islemler.keys()):
                     if s not in tickers: continue
                     curr_price = tickers[s]['last']
                     islem = aktif_islemler[s]
                     
-                    tp_oldu = (islem['side'] == "LONG" and curr_price >= islem['tp']) or \
-                              (islem['side'] == "SHORT" and curr_price <= islem['tp'])
-                    sl_oldu = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
-                              (islem['side'] == "SHORT" and curr_price >= islem['sl'])
+                    tp_hit = (islem['side'] == "LONG" and curr_price >= islem['tp']) or \
+                             (islem['side'] == "SHORT" and curr_price <= islem['tp'])
+                    sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
+                             (islem['side'] == "SHORT" and curr_price >= islem['sl'])
 
-                    if tp_oldu:
+                    if tp_hit:
                         gunluk_stats["tp"] += 1
-                        send_telegram_msg(f"✅ *TP ONAYLANDI!*\n💰 Parite: {s}\n📊 Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
+                        send_telegram_msg(f"✅ *KÂR ALINDI (TP)!*\n💰 *Parite:* {s}\n📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
                         aktif_islemler.pop(s)
-                    elif sl_oldu:
+                    elif sl_hit:
                         gunluk_stats["sl"] += 1
-                        send_telegram_msg(f"❌ *STOP-LOSS OLDU*\n📉 Parite: {s}\n📊 Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
+                        send_telegram_msg(f"❌ *STOP OLDU (SL)*\n📉 *Parite:* {s}\n📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
                         aktif_islemler.pop(s)
             
-            await asyncio.sleep(3)
-        except Exception as e:
-            print(f"Takip Hatası: {e}")
-            await asyncio.sleep(10)
+            await asyncio.sleep(2) # 2 saniyede bir fiyat kontrol et (Çok hızlı)
+        except: await asyncio.sleep(5)
 
-# --- ANA TARAMA DÖNGÜSÜ ---
+# --- TARAMA DÖNGÜSÜ (HIZLI MOD) ---
 async def tarama_dongusu():
-    print("🎯 SNIPER ELITE v2.2 Başlatıldı...")
-    send_telegram_msg("🎯 *Bot Başarıyla Başlatıldı!* \nGünlük raporlama ve anlık takip aktif.")
+    print("🎯 SNIPER ELITE v2.3 Başlatıldı...")
+    send_telegram_msg("🚀 *Bot v2.3 Aktif!* \nHızlı tarama ve anlık TP/SL habercisi devrede.")
     
     while True:
         try:
@@ -132,32 +88,26 @@ async def tarama_dongusu():
             for s in pariteler[:100]:
                 if s in aktif_islemler: continue
                 try:
-                    await asyncio.sleep(0.1)
-                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=100) 
+                    await asyncio.sleep(0.05)
+                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=50) 
                     df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
-                    avg_v = df['v'].rolling(window=20).mean().iloc[-1]
+                    avg_v = df['v'].rolling(window=10).mean().iloc[-1]
                     last, prev = df.iloc[-1], df.iloc[-2]
 
                     if last['v'] > (avg_v * VOL_MULTIPLIER):
                         side = "LONG" if last['c'] < prev['c'] else "SHORT"
                         
-                        tp_count, total_count = performans_kontrol(df)
-                        if total_count >= 5 and tp_count >= 3:
-                            raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
-                            raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
-                            
-                            aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl}
-                            
-                            tg_msg = (
-                                f"🎯 *YENİ SİNYAL*\n"
-                                f"Parite: {s}\n"
-                                f"Yön: {side}\n"
-                                f"Giriş: {fiyat_format(last['c'])}\n"
-                                f"TP: {fiyat_format(raw_tp)} | SL: {fiyat_format(raw_sl)}"
-                            )
-                            send_telegram_msg(tg_msg)
+                        raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
+                        raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
+                        
+                        # Takip listesine ekle
+                        aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl}
+                        
+                        # Giriş Sinyali Gönder
+                        emoji = "🚀" if side == "LONG" else "📉"
+                        send_telegram_msg(f"{emoji} *YENİ SİNYAL: {s}*\n⚖️ Yön: {side}\n💰 Giriş: {fiyat_format(last['c'])}\n🎯 Hedef: {fiyat_format(raw_tp)}")
                 except: continue
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
         except: await asyncio.sleep(10)
 
 async def main():
