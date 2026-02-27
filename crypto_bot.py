@@ -114,8 +114,8 @@ async def main():
                     f"💵 Toplam Kâr/Zarar: {DAILY_REPORT['profit']:.2f}$"
                 )
                 send_telegram_msg(msg)
-                await asyncio.sleep(60)  # Aynı raporu tekrar göndermesin
-            await asyncio.sleep(10)  # Her 10 saniyede saati kontrol et
+                await asyncio.sleep(60)  # tekrar göndermesin
+            await asyncio.sleep(10)
         except:
             await asyncio.sleep(10)
     
@@ -181,5 +181,6 @@ async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     # BU TEST SATIRINI EKLE:
     send_telegram_msg("✅ Bot başarıyla bağlandı! Piyasayı tarıyorum...")
+
 
 
