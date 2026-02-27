@@ -147,7 +147,7 @@ class CryptoApp(ctk.CTk):
                 except: continue
                 time.sleep(0.01)
 
-    def performans_kontrol(self, df):
+def performans_kontrol(self, df):
     success, trades = 0, 0
     for i in range(50, len(df) - 30):
         v_spike = df['v'].iloc[i] > (df['v'].iloc[i-20:i].mean() * 2.0)
@@ -163,7 +163,7 @@ class CryptoApp(ctk.CTk):
                     break
         if trades >= 10:
             break
-    return success, trades  # <-- burası artık fonksiyonun 1. seviyesinde
+    return success, trades
 def trade_takip(self):
     while True:
         try:
@@ -233,4 +233,5 @@ def gun_sonu_raporu_otomatik(self):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
