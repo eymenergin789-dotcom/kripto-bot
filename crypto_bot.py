@@ -85,17 +85,20 @@ def performans_kontrol(df):
     return success, trades
 async def gun_sonu_raporu_otomatik():
     while True:
-        now = datetime.now()
-        if now.hour == 23 and now.minute == 59:
-            msg = (
-                f"📊 *GÜN SONU RAPORU*\n"
-                f"✅ TP Sayısı: {DAILY_REPORT['TP']}\n"
-                f"🛑 SL Sayısı: {DAILY_REPORT['SL']}\n"
-                f"💵 Toplam Kâr/Zarar: {DAILY_REPORT['profit']:.2f}$"
-            )
-            send_telegram_msg(msg)
-            await asyncio.sleep(60)  # Tekrar göndermesin
-        await asyncio.sleep(10)
+        try:
+            now = datetime.now()
+            if now.hour == 23 and now.minute == 59:
+                msg = (
+                    f"📊 *GÜN SONU RAPORU*\n"
+                    f"✅ TP Sayısı: {DAILY_REPORT['TP']}\n"
+                    f"🛑 SL Sayısı: {DAILY_REPORT['SL']}\n"
+                    f"💵 Toplam Kâr/Zarar: {DAILY_REPORT['profit']:.2f}$"
+                )
+                send_telegram_msg(msg)
+                await asyncio.sleep(60)
+            await asyncio.sleep(10)
+        except:
+            await asyncio.sleep(10)
 async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     send_telegram_msg("🎯 *SNIPER ELITE v2.0 Aktif!* \nStrateji: Hacim Patlaması + Başarı Karne Kontrolü")
@@ -178,4 +181,5 @@ async def main():
     print("🎯 SNIPER ELITE v2.0 Başlatıldı...")
     # BU TEST SATIRINI EKLE:
     send_telegram_msg("✅ Bot başarıyla bağlandı! Piyasayı tarıyorum...")
+
 
