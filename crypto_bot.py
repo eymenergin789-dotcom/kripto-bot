@@ -175,37 +175,43 @@ def trade_takip(self):
                 current_price = ticker["last"]
 
                 profit_loss = 0
-                if trade["side"] == "LONG":
-if current_price >= trade["tp"]:   # <- burası yanlış girintili
-    profit_loss = (trade["tp"] - trade["entry"]) * DEFAULT_LEVERAGE
-    send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
-        trade["locked"] = True
-        self.daily_report["TP"] += 1
-        self.daily_report["profit"] += profit_loss
-        self.active_trades.remove(trade)
-    elif current_price <= trade["sl"]:
-        profit_loss = (trade["sl"] - trade["entry"]) * DEFAULT_LEVERAGE
-        send_telegram_msg(f"🛑 SL GELDİ: {trade['symbol']} | Zarar: {abs(profit_loss):.2f}$")
-        trade["locked"] = True
-        self.daily_report["SL"] += 1
-        self.daily_report["profit"] += profit_loss
-        self.active_trades.remove(trade)
 
-elif trade["side"] == "SHORT":
-    if current_price <= trade["tp"]:
-        profit_loss = (trade["entry"] - trade["tp"]) * DEFAULT_LEVERAGE
-        send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
-        trade["locked"] = True
-        self.daily_report["TP"] += 1
-        self.daily_report["profit"] += profit_loss
-        self.active_trades.remove(trade)
-    elif current_price >= trade["sl"]:
-        profit_loss = (trade["entry"] - trade["sl"]) * DEFAULT_LEVERAGE
-        send_telegram_msg(f"🛑 SL GELDİ: {trade['symbol']} | Zarar: {abs(profit_loss):.2f}$")
-        trade["locked"] = True
-        self.daily_report["SL"] += 1
-        self.daily_report["profit"] += profit_loss
-        self.active_trades.remove(trade)
+                # LONG pozisyon kontrolü
+                if trade["side"] == "LONG":
+                    if current_price >= trade["tp"]:
+                        profit_loss = (trade["tp"] - trade["entry"]) * DEFAULT_LEVERAGE
+                        send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
+                        trade["locked"] = True
+                        self.daily_report["TP"] += 1
+                        self.daily_report["profit"] += profit_loss
+                        self.active_trades.remove(trade)
+
+                    elif current_price <= trade["sl"]:
+                        profit_loss = (trade["sl"] - trade["entry"]) * DEFAULT_LEVERAGE
+                        send_telegram_msg(f"🛑 SL GELDİ: {trade['symbol']} | Zarar: {abs(profit_loss):.2f}$")
+                        trade["locked"] = True
+                        self.daily_report["SL"] += 1
+                        self.daily_report["profit"] += profit_loss
+                        self.active_trades.remove(trade)
+
+                # SHORT pozisyon kontrolü
+                elif trade["side"] == "SHORT":
+                    if current_price <= trade["tp"]:
+                        profit_loss = (trade["entry"] - trade["tp"]) * DEFAULT_LEVERAGE
+                        send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
+                        trade["locked"] = True
+                        self.daily_report["TP"] += 1
+                        self.daily_report["profit"] += profit_loss
+                        self.active_trades.remove(trade)
+
+                    elif current_price >= trade["sl"]:
+                        profit_loss = (trade["entry"] - trade["sl"]) * DEFAULT_LEVERAGE
+                        send_telegram_msg(f"🛑 SL GELDİ: {trade['symbol']} | Zarar: {abs(profit_loss):.2f}$")
+                        trade["locked"] = True
+                        self.daily_report["SL"] += 1
+                        self.daily_report["profit"] += profit_loss
+                        self.active_trades.remove(trade)
+
             time.sleep(5)
 
         except:
@@ -233,6 +239,7 @@ def gun_sonu_raporu_otomatik(self):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
 
