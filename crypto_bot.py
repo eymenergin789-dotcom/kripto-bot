@@ -13,8 +13,8 @@ EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'
 
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 2.5      
-TP_PERCENT = 0.02        
-SL_PERCENT = 0.01        
+TP_PERCENT = 0.005        
+SL_PERCENT = 0.003        
 
 # --- GLOBAL TAKİP DEĞİŞKENLERİ ---
 aktif_islemler = {} # { 'BTC/USDT:USDT': {'side': 'LONG', 'entry': 50000, 'tp': 51000, 'sl': 49500} }
@@ -178,5 +178,6 @@ if __name__ == "__main__":
     asyncio.run(main())
         
         
+
 
 
