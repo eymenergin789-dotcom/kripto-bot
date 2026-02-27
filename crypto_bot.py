@@ -78,42 +78,43 @@ class CryptoApp:
             "locked": False
         })
 
-    def run_logic(self):
-        send_telegram_msg("🚀 *KASA YÖNETİMLİ BOT BAŞLATILDI*\nCüzdan: 400$ | Risk: %2")
-       try:
-    EXCHANGE.load_markets()
-    tickers = EXCHANGE.fetch_tickers()
-    pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
-except Exception as e:
-    send_telegram_msg(f"❌ Bot başlatılamadı: {e}")
-    return
+   def run_logic(self):
+    send_telegram_msg("🚀 *KASA YÖNETİMLİ BOT BAŞLATILDI*\nCüzdan: 400$ | Risk: %2")
+    try:
+        EXCHANGE.load_markets()
+        tickers = EXCHANGE.fetch_tickers()
+        pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
+    except Exception as e:
+        send_telegram_msg(f"❌ Bot başlatılamadı: {e}")
+        return
 
-        while True:
-            for s in pariteler:
-                try:
-                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=500)
-                    df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
-                    avg_v = df['v'].rolling(window=20).mean().iloc[-1]
-                    last = df.iloc[-1]
-                    rsi_val = self.get_indicators(df)
+    while True:
+        for s in pariteler:
+            try:
+                bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=500) 
+                df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+                avg_v = df['v'].rolling(window=20).mean().iloc[-1]
+                last = df.iloc[-1]
+                rsi_val = self.get_indicators(df)
 
-                    if last['v'] > (avg_v * VOL_MULTIPLIER):
-                        side = None
-                        if last['c'] < df['c'].iloc[-2] and rsi_val < 45:
-                            side = "LONG"
-                        elif last['c'] > df['c'].iloc[-2] and rsi_val > 55:
-                            side = "SHORT"
+                if last['v'] > (avg_v * VOL_MULTIPLIER):
+                    side = None
+                    if last['c'] < df['c'].iloc[-2] and rsi_val < 45: 
+                        side = "LONG"
+                    elif last['c'] > df['c'].iloc[-2] and rsi_val > 55: 
+                        side = "SHORT"
 
-                        if side:
-                            success, total = self.performans_kontrol(df)
-                            if total >= 10 and success >= 8:
-                                p_s = f"{last['c']:.6f}"
-                                raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
-                                raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
-                                self.signal_ekle(s, side, p_s, f"{success}/{total}", f"{raw_tp:.6f}", f"{raw_sl:.6f}", rsi_val)
-                except:
-                    continue
-                time.sleep(0.01)
+                    if side:
+                        success, total = self.performans_kontrol(df)
+                        if total >= 10 and success >= 8:
+                            p_s = f"{last['c']:.6f}"
+                            raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
+                            raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
+                            self.after(0, self.signal_ekle, s, side, p_s, f"{success}/{total}", f"{raw_tp:.6f}", f"{raw_sl:.6f}", rsi_val)
+                            winsound.Beep(1500, 500)
+            except: 
+                continue
+            time.sleep(0.01)
 
     def performans_kontrol(self, df):
         success, trades = 0, 0
@@ -204,6 +205,7 @@ if __name__ == "__main__":
     app = CryptoApp()
     while True:
         time.sleep(1)
+
 
 
 
