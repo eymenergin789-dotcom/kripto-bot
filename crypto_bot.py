@@ -13,11 +13,11 @@ EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'
 
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 2.5      
-TP_PERCENT = 0.005        
-SL_PERCENT = 0.003        
+TP_PERCENT = 0.02        
+SL_PERCENT = 0.01        
 
 # --- GLOBAL TAKİP DEĞİŞKENLERİ ---
-aktif_islemler = {} # { 'BTC/USDT:USDT': {'side': 'LONG', 'entry': 50000, 'tp': 51000, 'sl': 49500} }
+aktif_islemler = {} 
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now().strftime("%Y-%m-%d")}
 
 def send_telegram_msg(message):
@@ -52,75 +52,66 @@ def performans_kontrol(df):
         if trades >= 10: break 
     return success, trades
 
+# --- YENİ: TAKİP SİSTEMİ ---
 async def takip_sistemi():
-    """Aktif işlemleri anlık takip eder ve sonuçları bildirir."""
     global gunluk_stats
+    print("🛠 Takip Sistemi Başlatıldı...")
     while True:
         try:
-            # Günlük istatistik sıfırlama (Gece yarısı)
+            # Tarih değiştiyse istatistiği sıfırla ve rapor ver
             bugun = datetime.now().strftime("%Y-%m-%d")
             if bugun != gunluk_stats["tarih"]:
-                report = f"📅 *GÜNLÜK RAPOR ({gunluk_stats['tarih']})*\n✅ Toplam TP: {gunluk_stats['tp']}\n❌ Toplam SL: {gunluk_stats['sl']}"
-                send_telegram_msg(report)
+                msg = f"📅 *GÜNLÜK ÖZET ({gunluk_stats['tarih']})*\n✅ TP: {gunluk_stats['tp']}\n❌ SL: {gunluk_stats['sl']}"
+                send_telegram_msg(msg)
                 gunluk_stats = {"tp": 0, "sl": 0, "tarih": bugun}
 
-            if not aktif_islemler:
-                await asyncio.sleep(10)
-                continue
+            if aktif_islemler:
+                semboller = list(aktif_islemler.keys())
+                # Sadece takipteki paritelerin fiyatını çek
+                tickers = EXCHANGE.fetch_tickers(semboller)
+                
+                for s in semboller:
+                    if s not in tickers: continue
+                    curr_price = tickers[s]['last']
+                    islem = aktif_islemler[s]
+                    
+                    tp_oldu = (islem['side'] == "LONG" and curr_price >= islem['tp']) or \
+                              (islem['side'] == "SHORT" and curr_price <= islem['tp'])
+                    sl_oldu = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
+                              (islem['side'] == "SHORT" and curr_price >= islem['sl'])
 
-            tickers = EXCHANGE.fetch_tickers(list(aktif_islemler.keys()))
+                    if tp_oldu:
+                        gunluk_stats["tp"] += 1
+                        send_telegram_msg(f"✅ *TP HEDEFİNE ULAŞILDI!*\n💰 *Parite:* {s}\n💵 *Fiyat:* {fiyat_format(curr_price)}\n📊 *Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
+                        aktif_islemler.pop(s)
+                    elif sl_oldu:
+                        gunluk_stats["sl"] += 1
+                        send_telegram_msg(f"❌ *STOP-LOSS OLDU*\n📉 *Parite:* {s}\n💵 *Fiyat:* {fiyat_format(curr_price)}\n📊 *Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
+                        aktif_islemler.pop(s)
             
-            for sembol in list(aktif_islemler.keys()):
-                islem = aktif_islemler[sembol]
-                current_price = tickers[sembol]['last']
-                
-                tp_hit = (islem['side'] == "LONG" and current_price >= islem['tp']) or \
-                         (islem['side'] == "SHORT" and current_price <= islem['tp'])
-                
-                sl_hit = (islem['side'] == "LONG" and current_price <= islem['sl']) or \
-                         (islem['side'] == "SHORT" and current_price >= islem['sl'])
-
-                if tp_hit:
-                    gunluk_stats["tp"] += 1
-                    msg = f"✅ *PROFIT (TP) ONAYLANDI!*\n💰 {sembol}\nFiyat: {fiyat_format(current_price)}\n📊 Günlük: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
-                    send_telegram_msg(msg)
-                    del aktif_islemler[sembol]
-                
-                elif sl_hit:
-                    gunluk_stats["sl"] += 1
-                    msg = f"❌ *STOP LOSS (SL) OLDU!*\n📉 {sembol}\nFiyat: {fiyat_format(current_price)}\n📊 Günlük: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
-                    send_telegram_msg(msg)
-                    del aktif_islemler[sembol]
-
-            await asyncio.sleep(5) # 5 saniyede bir fiyat kontrolü
+            await asyncio.sleep(2) # Takip hızı 2 saniye
         except Exception as e:
             print(f"Takip Hatası: {e}")
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
+
+# --- ANA TARAMA DÖNGÜSÜ ---
 async def tarama_dongusu():
     print("🎯 EYMEN ELITE Taramayı Başlattı...")
-    send_telegram_msg("🚀 *Bot Aktif!* Piyasalar taranıyor ve işlemler takip ediliyor...")
+    send_telegram_msg("🚀 *Bot Başarıyla Bağlandı!* Piyasayı tarıyorum...")
     
     while True:
         try:
             print("🔍 Marketler yükleniyor...")
             EXCHANGE.load_markets()
             tickers = EXCHANGE.fetch_tickers()
-            
-            # Sadece vadeli (swap) ve USDT çiftlerini filtrele
             pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
             print(f"📈 Kriterlere uyan {len(pariteler)} parite bulundu. İlk 100 taranıyor...")
 
-            counter = 0
             for s in pariteler[:100]:
-                if s in aktif_islemler: continue 
-
+                if s in aktif_islemler: continue # Zaten takipteyse atla
                 try:
-                    # Rate limit dostu küçük bir bekleme
-                    await asyncio.sleep(0.1) 
-                    
+                    await asyncio.sleep(0.1) # Rate limit koruması
                     bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=100) 
-                    if not bars: continue
-                    
                     df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
                     avg_v = df['v'].rolling(window=20).mean().iloc[-1]
                     last, prev = df.iloc[-1], df.iloc[-2]
@@ -136,48 +127,38 @@ async def tarama_dongusu():
                             raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
                             raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
                             
-                            aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl, 'entry': last['c']}
+                            # Takibe ekle
+                            aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl}
                             
                             emoji = "🚀" if side == "LONG" else "📉"
-                            basari_yuzdesi = int((tp_count / total_count) * 100)
-                            
                             tg_msg = (
-                                f"🎯 *YENİ SİNYAL*\n\n"
+                                f"🎯 *YENİ SNIPER SİNYALİ*\n\n"
                                 f"{emoji} *Parite:* {s}\n"
                                 f"⚖️ *Yön:* {side}\n"
                                 f"💰 *Giriş:* {fiyat_format(last['c'])}\n"
                                 f"━━━━━━━━━━━━━━━\n"
                                 f"✅ *HEDEF (TP):* {fiyat_format(raw_tp)}\n"
                                 f"❌ *STOP (SL):* {fiyat_format(raw_sl)}\n"
-                                f"📊 *Geçmiş Başarı:* %{basari_yuzdesi}"
+                                f"📊 *Geçmiş Başarı:* %{int((tp_count / total_count) * 100)}"
                             )
                             send_telegram_msg(tg_msg)
-                            print(f"\n✅ SİNYAL: {s} ({side})")
-                    
-                    counter += 1
-                    if counter % 10 == 0:
-                        print(f"🔄 {counter}/100 parite tarandı...")
-
-                except Exception as e:
-                    # Tekil parite hatası döngüyü bozmasın
+                            print(f"✅ SİNYAL: {s} ({side})")
+                except:
                     continue
             
             print("😴 Tarama bitti. 1 dakika bekleniyor...")
             await asyncio.sleep(60)
-            
         except Exception as e:
-            print(f"🚨 Ana Tarama Hatası: {e}")
+            print(f"Tarama Hatası: {e}")
             await asyncio.sleep(10)
 
-
+# --- BOTU BAŞLAT ---
 async def main():
-    # Tarama ve Takip işlemlerini aynı anda (parallel) çalıştırır
-    await asyncio.gather(tarama_dongusu(), takip_sistemi())
+    # İkisini aynı anda çalıştırır
+    await asyncio.gather(
+        tarama_dongusu(),
+        takip_sistemi()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
-        
-
-
-
