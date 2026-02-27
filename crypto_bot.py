@@ -1,117 +1,150 @@
+import customtkinter as ctk
 import ccxt
 import pandas as pd
-import asyncio
+import threading
 import time
-import os
+import winsound
 import requests
 from datetime import datetime
 
-# --- AYARLAR ---
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+# --- KASA VE RİSK AYARLARI ---
+TOTAL_WALLET = 400        # Toplam kasan
+RISK_PER_TRADE = 0.02     # İşlem başına toplam kasanın %2'sini riske at (8$)
+DEFAULT_LEVERAGE = 10     # Önerilen kaldıraç (10x)
+
+# --- STRATEJİ AYARLARI ---
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
+VOL_THRESHOLD = 3000000   
+VOL_MULTIPLIER = 2.5      
+TP_PERCENT = 0.012        # %1.2 Kar (2R Sistemi)
+SL_PERCENT = 0.006        # %0.6 Stop (2R Sistemi)
 
-VOL_THRESHOLD = 50000     # Filtreyi iyice açtım, küçük hacimli ama hareketli pariteler gelsin
-VOL_MULTIPLIER = 1.2      # Normalden biraz fazla hacim yeterli (Sinyal yağmuruna hazır ol)
-TP_PERCENT = 0.02        
-SL_PERCENT = 0.01        
-
-# --- GLOBAL TAKİP DEĞİŞKENLERİ ---
-aktif_islemler = {} 
-gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now().strftime("%Y-%m-%d")}
+# --- TELEGRAM ---
+TELEGRAM_TOKEN = "TELEGRAM_TOKEN"
+TELEGRAM_CHAT_ID = "TELEGRAM_CHAT_ID"
 
 def send_telegram_msg(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": int(TELEGRAM_CHAT_ID), "text": message, "parse_mode": "Markdown"}
-        requests.post(url, json=payload, timeout=10)
-    except: pass
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        requests.post(url, json=payload, timeout=5)
+    except Exception: pass
 
-def fiyat_format(fiyat):
-    if fiyat < 0.0001: return f"{fiyat:.8f}"
-    if fiyat < 1: return f"{fiyat:.6f}"
-    return f"{fiyat:.4f}"
+class CryptoApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("CemsCrypto - Money Manager 2R")
+        self.geometry("1000x750")
+        ctk.set_appearance_mode("dark")
 
-# --- TAKİP SİSTEMİ (TP/SL HABERCİSİ) ---
-async def takip_sistemi():
-    global gunluk_stats
-    print("🛠 Takip Sistemi ve Gün Sonu Raporu Aktif.")
-    while True:
-        try:
-            simdi = datetime.now()
-            bugun_tarih = simdi.strftime("%Y-%m-%d")
+        self.header = ctk.CTkLabel(self, text="💰 MONEY MANAGER & 2R SNIPER", font=("Impact", 34), text_color="#FFCC00")
+        self.header.pack(pady=15)
 
-            # Gün Sonu Raporu (00:00'da)
-            if bugun_tarih != gunluk_stats["tarih"]:
-                toplam = gunluk_stats['tp'] + gunluk_stats['sl']
-                msg = f"📊 *GÜN SONU RAPORU*\n✅ TP: {gunluk_stats['tp']}\n❌ SL: {gunluk_stats['sl']}\n📈 Toplam İşlem: {toplam}"
-                send_telegram_msg(msg)
-                gunluk_stats = {"tp": 0, "sl": 0, "tarih": bugun_tarih}
+        self.signal_frame = ctk.CTkScrollableFrame(self, width=950, height=550, label_text="Risk Hesaplamalı Sinyaller")
+        self.signal_frame.pack(pady=10, padx=20)
 
-            # TP/SL Kontrolü
-            if aktif_islemler:
-                tickers = EXCHANGE.fetch_tickers(list(aktif_islemler.keys()))
-                for s in list(aktif_islemler.keys()):
-                    if s not in tickers: continue
-                    curr_price = tickers[s]['last']
-                    islem = aktif_islemler[s]
-                    
-                    tp_hit = (islem['side'] == "LONG" and curr_price >= islem['tp']) or \
-                             (islem['side'] == "SHORT" and curr_price <= islem['tp'])
-                    sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
-                             (islem['side'] == "SHORT" and curr_price >= islem['sl'])
+        self.status_label = ctk.CTkLabel(self, text="Kasa Yönetimi Aktif: 400$ | Risk: %2", font=("Consolas", 14))
+        self.status_label.pack(side="bottom", fill="x", pady=10)
 
-                    if tp_hit:
-                        gunluk_stats["tp"] += 1
-                        send_telegram_msg(f"✅ *KÂR ALINDI (TP)!*\n💰 *Parite:* {s}\n📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
-                        aktif_islemler.pop(s)
-                    elif sl_hit:
-                        gunluk_stats["sl"] += 1
-                        send_telegram_msg(f"❌ *STOP OLDU (SL)*\n📉 *Parite:* {s}\n📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL")
-                        aktif_islemler.pop(s)
-            
-            await asyncio.sleep(2) # 2 saniyede bir fiyat kontrol et (Çok hızlı)
-        except: await asyncio.sleep(5)
+        threading.Thread(target=self.run_logic, daemon=True).start()
 
-# --- TARAMA DÖNGÜSÜ (HIZLI MOD) ---
-async def tarama_dongusu():
-    print("🎯 SNIPER ELITE v2.3 Başlatıldı...")
-    send_telegram_msg("🚀 *Bot v2.3 Aktif!* \nHızlı tarama ve anlık TP/SL habercisi devrede.")
-    
-    while True:
+    def calculate_position(self, entry_price):
+        """Kasa miktarına göre ideal giriş miktarını hesaplar."""
+        risk_amount = TOTAL_WALLET * RISK_PER_TRADE # 400 * 0.02 = 8$
+        # Stop mesafesi %0.6 olduğu için pozisyon büyüklüğünü buna göre ayarla
+        position_size_usd = risk_amount / SL_PERCENT # 8 / 0.006 = ~1333$ (Toplam hacim)
+        margin_needed = position_size_usd / DEFAULT_LEVERAGE # 1333 / 10 = ~133$
+        
+        return round(margin_needed, 2), DEFAULT_LEVERAGE
+
+    def get_indicators(self, df):
+        delta = df['c'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        return 100 - (100 / (1 + rs)).iloc[-1]
+
+    def signal_ekle(self, symbol, side, price, karne, tp, sl, rsi):
+        margin, lev = self.calculate_position(float(price))
+        
+        color = "#27ae60" if side == "LONG" else "#c0392b"
+        card = ctk.CTkFrame(self.signal_frame, fg_color="#1a1a1a", border_color=color, border_width=2)
+        card.pack(fill="x", pady=8, padx=5)
+
+        # Arayüz kartı içeriği
+        info_txt = f"【{side}】 {symbol}\nGiriş: {price}\nÖneri: {margin}$ | {lev}x"
+        info_lbl = ctk.CTkLabel(card, text=info_txt, font=("Arial", 15, "bold"), text_color="white", justify="left")
+        info_lbl.pack(side="left", padx=20, pady=10)
+
+        targets_txt = f"🎯 TP: {tp}\n🛑 SL: {sl}"
+        targets_lbl = ctk.CTkLabel(card, text=targets_txt, font=("Consolas", 16, "bold"), text_color="#00FFCC")
+        targets_lbl.pack(side="right", padx=30)
+
+        # Telegram Mesajı (Rehber Ekli)
+        tg_msg = (
+            f"🎯 *RİSK HESAPLANMIŞ 2R SİNYAL*\n\n"
+            f"💰 *Parite:* {symbol} | *Yön:* {side}\n"
+            f"💵 *Giriş Fiyatı:* `{price}`\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📝 *İŞLEM REHBERİ (400$ Kasa İçin):*\n"
+            f"🔸 *Miktar (Margin):* `{margin} USD` (İzole)\n"
+            f"🔸 *Kaldıraç:* `{lev}x`\n"
+            f"🛑 *Zarar Durdur (SL):* `{sl}`\n"
+            f"✅ *Kâr Al (TP):* `{tp}`\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📊 *Karne:* {karne} | *RSI:* {rsi:.2f}\n"
+            f"💡 *Not:* Bu işleme girersen stop olduğunda sadece 8$ kaybedersin."
+        )
+        send_telegram_msg(tg_msg)
+
+    def run_logic(self):
+        send_telegram_msg("🚀 *KASA YÖNETİMLİ BOT BAŞLATILDI*\nCüzdan: 400$ | Risk: %2")
         try:
             EXCHANGE.load_markets()
             tickers = EXCHANGE.fetch_tickers()
             pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
-            
-            for s in pariteler[:100]:
-                if s in aktif_islemler: continue
+        except: return
+
+        while True:
+            for s in pariteler:
                 try:
-                    await asyncio.sleep(0.05)
-                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=50) 
+                    bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=500) 
                     df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
-                    avg_v = df['v'].rolling(window=10).mean().iloc[-1]
-                    last, prev = df.iloc[-1], df.iloc[-2]
+                    avg_v = df['v'].rolling(window=20).mean().iloc[-1]
+                    last = df.iloc[-1]
+                    rsi_val = self.get_indicators(df)
 
                     if last['v'] > (avg_v * VOL_MULTIPLIER):
-                        side = "LONG" if last['c'] < prev['c'] else "SHORT"
-                        
-                        raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
-                        raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
-                        
-                        # Takip listesine ekle
-                        aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl}
-                        
-                        # Giriş Sinyali Gönder
-                        emoji = "🚀" if side == "LONG" else "📉"
-                        send_telegram_msg(f"{emoji} *YENİ SİNYAL: {s}*\n⚖️ Yön: {side}\n💰 Giriş: {fiyat_format(last['c'])}\n🎯 Hedef: {fiyat_format(raw_tp)}")
-                except: continue
-            await asyncio.sleep(30)
-        except: await asyncio.sleep(10)
+                        side = None
+                        if last['c'] < df['c'].iloc[-2] and rsi_val < 45: side = "LONG"
+                        elif last['c'] > df['c'].iloc[-2] and rsi_val > 55: side = "SHORT"
 
-async def main():
-    await asyncio.gather(tarama_dongusu(), takip_sistemi())
+                        if side:
+                            # Performans kontrolü 8/10 ise gönder
+                            success, total = self.performans_kontrol(df)
+                            if total >= 10 and success >= 8:
+                                p_s = f"{last['c']:.6f}"
+                                raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
+                                raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
+                                self.after(0, self.signal_ekle, s, side, p_s, f"{success}/{total}", f"{raw_tp:.6f}", f"{raw_sl:.6f}", rsi_val)
+                                winsound.Beep(1500, 500)
+                except: continue
+                time.sleep(0.01)
+
+    def performans_kontrol(self, df):
+        success, trades = 0, 0
+        for i in range(50, len(df) - 30):
+            v_spike = df['v'].iloc[i] > (df['v'].iloc[i-20:i].mean() * 2.0)
+            if v_spike and df['c'].iloc[i] < df['c'].iloc[i-1]:
+                entry = df['c'].iloc[i]
+                tp, sl = entry * (1 + TP_PERCENT), entry * (1 - SL_PERCENT)
+                trades += 1
+                for j in range(i + 1, len(df)):
+                    if df['h'].iloc[j] >= tp: success += 1; break
+                    if df['l'].iloc[j] <= sl: break
+            if trades >= 10: break 
+        return success, trades
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app = CryptoApp()
+    app.mainloop()
