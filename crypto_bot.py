@@ -96,22 +96,31 @@ async def takip_sistemi():
         except Exception as e:
             print(f"Takip Hatası: {e}")
             await asyncio.sleep(10)
-
 async def tarama_dongusu():
-    print("🎯 SNIPER ELITE v2.1 Tarama Başlatıldı...")
+    print("🎯 EYMEN ELITE Taramayı Başlattı...")
     send_telegram_msg("🚀 *Bot Aktif!* Piyasalar taranıyor ve işlemler takip ediliyor...")
     
     while True:
         try:
+            print("🔍 Marketler yükleniyor...")
             EXCHANGE.load_markets()
             tickers = EXCHANGE.fetch_tickers()
-            pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
             
+            # Sadece vadeli (swap) ve USDT çiftlerini filtrele
+            pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
+            print(f"📈 Kriterlere uyan {len(pariteler)} parite bulundu. İlk 100 taranıyor...")
+
+            counter = 0
             for s in pariteler[:100]:
-                if s in aktif_islemler: continue # Zaten takipteyse pas geç
+                if s in aktif_islemler: continue 
 
                 try:
+                    # Rate limit dostu küçük bir bekleme
+                    await asyncio.sleep(0.1) 
+                    
                     bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=100) 
+                    if not bars: continue
+                    
                     df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
                     avg_v = df['v'].rolling(window=20).mean().iloc[-1]
                     last, prev = df.iloc[-1], df.iloc[-2]
@@ -127,7 +136,6 @@ async def tarama_dongusu():
                             raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
                             raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
                             
-                            # Takibe Ekle
                             aktif_islemler[s] = {'side': side, 'tp': raw_tp, 'sl': raw_sl, 'entry': last['c']}
                             
                             emoji = "🚀" if side == "LONG" else "📉"
@@ -144,14 +152,23 @@ async def tarama_dongusu():
                                 f"📊 *Geçmiş Başarı:* %{basari_yuzdesi}"
                             )
                             send_telegram_msg(tg_msg)
-                            await asyncio.sleep(1) 
-                except:
+                            print(f"\n✅ SİNYAL: {s} ({side})")
+                    
+                    counter += 1
+                    if counter % 10 == 0:
+                        print(f"🔄 {counter}/100 parite tarandı...")
+
+                except Exception as e:
+                    # Tekil parite hatası döngüyü bozmasın
                     continue
             
+            print("😴 Tarama bitti. 1 dakika bekleniyor...")
             await asyncio.sleep(60)
+            
         except Exception as e:
-            print(f"Tarama Hatası: {e}")
+            print(f"🚨 Ana Tarama Hatası: {e}")
             await asyncio.sleep(10)
+
 
 async def main():
     # Tarama ve Takip işlemlerini aynı anda (parallel) çalıştırır
@@ -161,4 +178,5 @@ if __name__ == "__main__":
     asyncio.run(main())
         
         
+
 
