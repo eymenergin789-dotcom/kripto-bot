@@ -148,18 +148,22 @@ class CryptoApp(ctk.CTk):
                 time.sleep(0.01)
 
     def performans_kontrol(self, df):
-        success, trades = 0, 0
-        for i in range(50, len(df) - 30):
-            v_spike = df['v'].iloc[i] > (df['v'].iloc[i-20:i].mean() * 2.0)
-            if v_spike and df['c'].iloc[i] < df['c'].iloc[i-1]:
-                entry = df['c'].iloc[i]
-                tp, sl = entry * (1 + TP_PERCENT), entry * (1 - SL_PERCENT)
-                trades += 1
-                for j in range(i + 1, len(df)):
-                    if df['h'].iloc[j] >= tp: success += 1; break
-                    if df['l'].iloc[j] <= sl: break
-            if trades >= 10: break 
-       return success, trades
+    success, trades = 0, 0
+    for i in range(50, len(df) - 30):
+        v_spike = df['v'].iloc[i] > (df['v'].iloc[i-20:i].mean() * 2.0)
+        if v_spike and df['c'].iloc[i] < df['c'].iloc[i-1]:
+            entry = df['c'].iloc[i]
+            tp, sl = entry * (1 + TP_PERCENT), entry * (1 - SL_PERCENT)
+            trades += 1
+            for j in range(i + 1, len(df)):
+                if df['h'].iloc[j] >= tp:
+                    success += 1
+                    break
+                if df['l'].iloc[j] <= sl:
+                    break
+        if trades >= 10:
+            break
+    return success, trades  # <-- burası artık fonksiyonun 1. seviyesinde
 def trade_takip(self):
     while True:
         try:
@@ -229,3 +233,4 @@ def gun_sonu_raporu_otomatik(self):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
