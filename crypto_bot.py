@@ -4,17 +4,16 @@ import asyncio
 import os
 import requests
 from datetime import datetime
-import pandas_ta as ta
 
 # --- AYARLAR ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
-VOL_THRESHOLD = 500000    
-VOL_MULTIPLIER = 3.0      
-TP_PERCENT = 0.025        
-SL_PERCENT = 0.015        
+VOL_THRESHOLD = 500000    # 500k USDT altı hacimli coinleri pas geçer
+VOL_MULTIPLIER = 3.5      # Hacim normalin 3.5 katı olmalı (Güçlü patlama şartı)
+TP_PERCENT = 0.02        
+SL_PERCENT = 0.01        
 
 aktif_islemler = {} 
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now().strftime("%Y-%m-%d")}
@@ -32,9 +31,18 @@ def fiyat_format(fiyat):
     if fiyat < 1: return f"{fiyat:.6f}"
     return f"{fiyat:.4f}"
 
+# Manuel RSI Hesaplama (Kütüphane hatasını engellemek için eklendi)
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs.iloc[-1]))
+
 # --- TAKİP VE DETAYLI RAPORLAMA ---
 async def takip_sistemi():
     global gunluk_stats
+    print("🛠 Takip Sistemi ve Detaylı Raporlama Aktif.")
     while True:
         try:
             simdi = datetime.now()
@@ -58,23 +66,21 @@ async def takip_sistemi():
                         if tp_hit: gunluk_stats["tp"] += 1
                         else: gunluk_stats["sl"] += 1
                         
-                        # Yüzdelik Değişim Hesaplama
+                        # Net Yüzdelik Kazanç/Kayba Göre Hesap
                         degisim = ((curr_price - islem['entry']) / islem['entry']) * 100
                         if islem['side'] == "SHORT": degisim = -degisim
-                        
-                        saat = datetime.now().strftime("%H:%M:%S")
                         
                         rapor_msg = (
                             f"{durum}\n"
                             f"━━━━━━━━━━━━━━━\n"
-                            f"Parite: {s}\n"
-                            f"Yön: {islem['side']}\n"
-                            f"Giriş Fiyatı: {fiyat_format(islem['entry'])}\n"
-                            f"Çıkış Fiyatı: {fiyat_format(curr_price)}\n"
-                            f"Net Sonuç: %{degisim:.2f}\n"
-                            f"Saat: {saat}\n"
+                            f"📍 Parite: {s}\n"
+                            f"⚖️ Yön: {islem['side']}\n"
+                            f"💰 Giriş: {fiyat_format(islem['entry'])}\n"
+                            f"🏁 Çıkış: {fiyat_format(curr_price)}\n"
+                            f"📉 Net Sonuç: %{degisim:.2f}\n"
+                            f"⏰ Saat: {datetime.now().strftime('%H:%M:%S')}\n"
                             f"━━━━━━━━━━━━━━━\n"
-                            f"📊 Günlük Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
+                            f"📊 Skor: {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
                         )
                         send_telegram_msg(rapor_msg)
                         aktif_islemler.pop(s)
@@ -82,7 +88,8 @@ async def takip_sistemi():
         except: await asyncio.sleep(5)
 
 async def tarama_dongusu():
-    send_telegram_msg("🎯 *Sniper v2.5 Başlatıldı.*\nDetaylı raporlama ve RSI filtresi aktif.")
+    print("🎯 SNIPER ELITE v2.6 Başlatıldı...")
+    send_telegram_msg("🚀 *Sniper v2.6 Aktif!* \nFiltreler sıkılaştırıldı, detaylı raporlama devrede.")
     while True:
         try:
             EXCHANGE.load_markets()
@@ -96,26 +103,22 @@ async def tarama_dongusu():
                     bars = EXCHANGE.fetch_ohlcv(s, timeframe='1m', limit=100) 
                     df = pd.DataFrame(bars, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
                     avg_v = df['v'].rolling(window=20).mean().iloc[-1]
-                    rsi = ta.rsi(df['c'], length=14).iloc[-1]
+                    rsi_val = calculate_rsi(df['c'])
                     last, prev = df.iloc[-1], df.iloc[-2]
 
+                    # Sıkılaştırılmış Giriş Şartları
                     if last['v'] > (avg_v * VOL_MULTIPLIER):
                         side = None
-                        if last['c'] > prev['c'] and 45 < rsi < 65: side = "LONG"
-                        elif last['c'] < prev['c'] and 35 < rsi < 55: side = "SHORT"
+                        if last['c'] > prev['c'] and 45 < rsi_val < 65: side = "LONG"
+                        elif last['c'] < prev['c'] and 35 < rsi_val < 55: side = "SHORT"
 
                         if side:
                             raw_tp = last['c']*(1+TP_PERCENT) if side == "LONG" else last['c']*(1-TP_PERCENT)
                             raw_sl = last['c']*(1-SL_PERCENT) if side == "LONG" else last['c']*(1+SL_PERCENT)
                             
-                            aktif_islemler[s] = {
-                                'side': side, 
-                                'entry': last['c'], 
-                                'tp': raw_tp, 
-                                'sl': raw_sl
-                            }
+                            aktif_islemler[s] = {'side': side, 'entry': last['c'], 'tp': raw_tp, 'sl': raw_sl}
                             
-                            send_telegram_msg(f"🚀 *SİNYAL:* {s}\nYön: {side}\nGiriş: {fiyat_format(last['c'])}\nRSI: {int(rsi)}")
+                            send_telegram_msg(f"🚀 *YENİ SİNYAL:* {s}\nYön: {side}\nGiriş: {fiyat_format(last['c'])}\nRSI: {int(rsi_val)}")
                 except: continue
             await asyncio.sleep(60)
         except: await asyncio.sleep(10)
