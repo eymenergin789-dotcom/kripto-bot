@@ -2,7 +2,6 @@ import ccxt
 import pandas as pd
 import threading
 import time
-import winsound
 import requests
 from datetime import datetime
 
@@ -164,6 +163,7 @@ class CryptoApp(ctk.CTk):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
 
