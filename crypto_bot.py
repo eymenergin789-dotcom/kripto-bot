@@ -3,19 +3,26 @@ import pandas as pd
 import asyncio
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz # Saat dilimi için gerekli
 
 # --- AYARLAR ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
+# Kazakistan Saat Dilimi Ayarı
+KAZAK_TZ = pytz.timezone('Asia/Almaty')
+
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 3.5      
-SL_PERCENT = 0.01        
+SL_PERCENT = 0.03        
 
 aktif_islemler = {} 
-gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now().strftime("%Y-%m-%d")}
+gunluk_stats = {"tp": 0, "sl": 0, "tarih": datetime.now(KAZAK_TZ).strftime("%Y-%m-%d")}
+
+def get_now():
+    return datetime.now(KAZAK_TZ)
 
 def send_telegram_msg(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
@@ -40,9 +47,11 @@ def calculate_rsi(series, period=14):
 # --- TAKİP SİSTEMİ ---
 async def takip_sistemi():
     global gunluk_stats
+    print(f"[{get_now().strftime('%H:%M:%S')}] ✅ Takip Sistemi ve Kazakistan Saati Aktif Edildi.")
     while True:
         try:
-            simdi = datetime.now()
+            simdi = get_now()
+            # Gün sonu raporu kontrolü
             if simdi.strftime("%Y-%m-%d") != gunluk_stats["tarih"]:
                 send_telegram_msg(f"📊 *GÜN SONU ÖZETİ*\n✅ TP: {gunluk_stats['tp']}\n❌ SL: {gunluk_stats['sl']}")
                 gunluk_stats = {"tp": 0, "sl": 0, "tarih": simdi.strftime("%Y-%m-%d")}
@@ -54,7 +63,6 @@ async def takip_sistemi():
                     curr_price = tickers[s]['last']
                     islem = aktif_islemler[s]
                     
-                    # Sinyal sadece ilk TP1'e göre veya SL'ye göre kapanır
                     tp_hit = (islem['side'] == "LONG" and curr_price >= islem['tp_targets'][0]) or \
                              (islem['side'] == "SHORT" and curr_price <= islem['tp_targets'][0])
                     sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
@@ -73,21 +81,29 @@ async def takip_sistemi():
                             f"🪙 *Coin:* #{s.replace(':USDT', '')}\n"
                             f"💰 *Çıkış:* {fiyat_format(curr_price)}\n"
                             f"📈 *Net:* %{degisim:.2f}\n"
-                            f"📊 *Günlük:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
+                            f"⏰ *Saat:* {simdi.strftime('%H:%M:%S')}\n"
+                            f"📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
                         )
                         send_telegram_msg(rapor)
+                        print(f"[{simdi.strftime('%H:%M:%S')}] 🔔 İşlem Kapatıldı: {s} ({'TP' if tp_hit else 'SL'})")
                         aktif_islemler.pop(s)
             await asyncio.sleep(2)
-        except: await asyncio.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Takip Hatası: {e}")
+            await asyncio.sleep(5)
 
-# --- TARAMA DÖNGÜSÜ (YENİ FORMAT) ---
+# --- TARAMA DÖNGÜSÜ ---
 async def tarama_dongusu():
-    send_telegram_msg("🎯 *Sniper v2.7 Aktif!*\nProfesyonel sinyal formatı devrede.")
+    print(f"[{get_now().strftime('%H:%M:%S')}] 🚀 Sniper v2.9 Başlatıldı. Kazakistan saati baz alınıyor.")
+    send_telegram_msg("🎯 *Sniper v2.9 Aktif!* \nKazakistan saat dilimi (GMT+5) ve detaylı log sistemi devrede.")
+    
     while True:
         try:
+            print(f"[{get_now().strftime('%H:%M:%S')}] 🔍 Marketler taranıyor...")
             EXCHANGE.load_markets()
             tickers = EXCHANGE.fetch_tickers()
             pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
+            print(f"[{get_now().strftime('%H:%M:%S')}] 📋 Kriterlere uyan {len(pariteler)} parite bulundu. İlk 100 taranıyor...")
             
             for s in pariteler[:100]:
                 if s in aktif_islemler: continue
@@ -106,14 +122,12 @@ async def tarama_dongusu():
 
                         if side:
                             entry = last['c']
-                            # TP Hedefleri: %0.5, %1.0, %1.5, %2.0
                             mult = 1 if side == "LONG" else -1
                             targets = [entry * (1 + (mult * p)) for p in [0.005, 0.01, 0.015, 0.02]]
                             sl = entry * (1 - (mult * SL_PERCENT))
                             
                             aktif_islemler[s] = {'side': side, 'entry': entry, 'tp_targets': targets, 'sl': sl}
                             
-                            # İSTEDİĞİN SİNYAL FORMATI
                             sinyal_msg = (
                                 f"📊 *Coin:* #{s.replace(':USDT', '')} USDT\n"
                                 f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n\n"
@@ -123,12 +137,18 @@ async def tarama_dongusu():
                                 f"🎯 *TP3:* {fiyat_format(targets[2])}\n"
                                 f"🎯 *TP4:* {fiyat_format(targets[3])}\n"
                                 f"⛔️ *Stop:* {fiyat_format(sl)}\n\n"
-                                f"📱 *RSI:* {int(rsi_val)}"
+                                f"📱 *RSI:* {int(rsi_val)}\n"
+                                f"⏰ *Saat:* {get_now().strftime('%H:%M:%S')}"
                             )
                             send_telegram_msg(sinyal_msg)
+                            print(f"[{get_now().strftime('%H:%M:%S')}] 🎯 Sinyal Gönderildi: {s} ({side})")
                 except: continue
+            
+            print(f"[{get_now().strftime('%H:%M:%S')}] 😴 Tarama bitti. 1 dakika bekleniyor...")
             await asyncio.sleep(60)
-        except: await asyncio.sleep(10)
+        except Exception as e:
+            print(f"⚠️ Tarama Hatası: {e}")
+            await asyncio.sleep(10)
 
 async def main():
     await asyncio.gather(tarama_dongusu(), takip_sistemi())
