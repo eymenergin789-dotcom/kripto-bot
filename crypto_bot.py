@@ -28,7 +28,7 @@ def send_telegram_msg(message):
         requests.post(url, json=payload, timeout=5)
     except Exception: pass
 
-class CryptoApp(ctk.CTk):
+class CryptoApp:
     def __init__(self):
         super().__init__()
         self.title("CemsCrypto - Money Manager 2R")
@@ -38,13 +38,13 @@ class CryptoApp(ctk.CTk):
         self.active_trades = []
         self.daily_report = {"TP": 0, "SL": 0, "profit": 0.0}
 
-        self.header = ctk.CTkLabel(self, text="💰 MONEY MANAGER & 2R SNIPER", font=("Impact", 34), text_color="#FFCC00")
+        self.header = (self, text="💰 MONEY MANAGER & 2R SNIPER", font=("Impact", 34), text_color="#FFCC00")
         self.header.pack(pady=15)
 
-        self.signal_frame = ctk.CTkScrollableFrame(self, width=950, height=550, label_text="Risk Hesaplamalı Sinyaller")
+        self.signal_frame = (self, width=950, height=550, label_text="Risk Hesaplamalı Sinyaller")
         self.signal_frame.pack(pady=10, padx=20)
 
-        self.status_label = ctk.CTkLabel(self, text="Kasa Yönetimi Aktif: 400$ | Risk: %2", font=("Consolas", 14))
+        self.status_label = (self, text="Kasa Yönetimi Aktif: 400$ | Risk: %2", font=("Consolas", 14))
         self.status_label.pack(side="bottom", fill="x", pady=10)
 
         threading.Thread(target=self.run_logic, daemon=True).start()
@@ -55,16 +55,16 @@ class CryptoApp(ctk.CTk):
         margin, lev = self.calculate_position(float(price))
 
         color = "#27ae60" if side == "LONG" else "#c0392b"
-        card = ctk.CTkFrame(self.signal_frame, fg_color="#1a1a1a", border_color=color, border_width=2)
+        card =(self.signal_frame, fg_color="#1a1a1a", border_color=color, border_width=2)
         card.pack(fill="x", pady=8, padx=5)
 
         info_txt = f"【{side}】 {symbol}\nGiriş: {price}\nÖneri: {margin}$ | {lev}x"
-        info_lbl = ctk.CTkLabel(card, text=info_txt, font=("Arial", 15, "bold"),
+        info_lbl = (card, text=info_txt, font=("Arial", 15, "bold"),
                                 text_color="white", justify="left")
         info_lbl.pack(side="left", padx=20, pady=10)
 
         targets_txt = f"🎯 TP: {tp}\n🛑 SL: {sl}"
-        targets_lbl = ctk.CTkLabel(card, text=targets_txt, font=("Consolas", 16, "bold"),
+        targets_lbl = (card, text=targets_txt, font=("Consolas", 16, "bold"),
                                    text_color="#00FFCC")
         targets_lbl.pack(side="right", padx=30)
 
@@ -163,6 +163,7 @@ class CryptoApp(ctk.CTk):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
 
