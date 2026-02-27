@@ -10,14 +10,15 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
-# MANUEL SAAT AYARI (Kazakistan GMT+5)
+LEVERAGE = 20           
+TEST_AMOUNT = 100       
+
 def get_kazak_time():
-    # Sunucu saati üzerine 5 saat ekleyerek Kazakistan vaktini bulur
     return datetime.utcnow() + timedelta(hours=5)
 
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 3.5      
-SL_PERCENT = 0.03       
+SL_PERCENT = 0.01        
 
 aktif_islemler = {} 
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": get_kazak_time().strftime("%Y-%m-%d")}
@@ -42,10 +43,10 @@ def calculate_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs.iloc[-1]))
 
-# --- TAKİP SİSTEMİ ---
+# --- TAKİP SİSTEMİ (Giriş Fiyatı Eklendi) ---
 async def takip_sistemi():
     global gunluk_stats
-    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] ✅ Takip Sistemi ve Manuel GMT+5 Ayarı Aktif.")
+    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] ✅ Detaylı Raporlama Aktif.")
     while True:
         try:
             simdi = get_kazak_time()
@@ -69,17 +70,24 @@ async def takip_sistemi():
                         if tp_hit: gunluk_stats["tp"] += 1
                         else: gunluk_stats["sl"] += 1
                         
-                        degisim = ((curr_price - islem['entry']) / islem['entry']) * 100
-                        if islem['side'] == "SHORT": degisim = -degisim
+                        raw_degisim = ((curr_price - islem['entry']) / islem['entry'])
+                        if islem['side'] == "SHORT": raw_degisim = -raw_degisim
                         
+                        kaldıraçlı_yuzde = raw_degisim * LEVERAGE * 100
+                        dolar_kazanc = (TEST_AMOUNT * raw_degisim * LEVERAGE)
+                        
+                        # YENİ RAPOR FORMATI
                         rapor = (
                             f"{'✅ *HEDEF GÖRÜLDÜ (TP)*' if tp_hit else '❌ *STOP OLUNDU (SL)*'}\n"
                             f"━━━━━━━━━━━━━━━\n"
                             f"🪙 *Coin:* #{s.replace(':USDT', '')}\n"
-                            f"💰 *Çıkış:* {fiyat_format(curr_price)}\n"
-                            f"📈 *Net:* %{degisim:.2f}\n"
+                            f"⚖️ *Yön:* {islem['side']}\n"
+                            f"📥 *Giriş:* {fiyat_format(islem['entry'])}\n"
+                            f"🏁 *Çıkış:* {fiyat_format(curr_price)}\n"
+                            f"⚡ *Kaldıraç:* {LEVERAGE}x\n"
+                            f"📈 *Net:* %{kaldıraçlı_yuzde:.2f} ({dolar_kazanc:+.2f}$)\n"
                             f"⏰ *Saat:* {simdi.strftime('%H:%M:%S')}\n"
-                            f"📊 *Günlük:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
+                            f"📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
                         )
                         send_telegram_msg(rapor)
                         print(f"[{simdi.strftime('%H:%M:%S')}] 🔔 İşlem Kapandı: {s}")
@@ -89,12 +97,11 @@ async def takip_sistemi():
 
 # --- TARAMA DÖNGÜSÜ ---
 async def tarama_dongusu():
-    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 🚀 Sniper v3.0 Başlatıldı.")
-    send_telegram_msg("🎯 *Sniper v3.0 Aktif!* \nSaat dilimi manuel GMT+5 olarak düzeltildi.")
+    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 🚀 Sniper v3.2 Başlatıldı.")
+    send_telegram_msg(f"🎯 *Sniper v3.2 Aktif!* \nDetaylı Giriş/Çıkış Raporlaması Devrede.")
     
     while True:
         try:
-            print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 🔍 Marketler taranıyor...")
             EXCHANGE.load_markets()
             tickers = EXCHANGE.fetch_tickers()
             pariteler = [s for s, d in tickers.items() if ':USDT' in s and d['quoteVolume'] > VOL_THRESHOLD]
@@ -124,7 +131,8 @@ async def tarama_dongusu():
                             
                             sinyal_msg = (
                                 f"📊 *Coin:* #{s.replace(':USDT', '')} USDT\n"
-                                f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n\n"
+                                f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n"
+                                f"⚡ *Kaldıraç:* {LEVERAGE}x\n\n"
                                 f"🔸 *Fiyat:* {fiyat_format(entry)}\n\n"
                                 f"🎯 *TP1:* {fiyat_format(targets[0])}\n"
                                 f"🎯 *TP2:* {fiyat_format(targets[1])}\n"
@@ -135,10 +143,7 @@ async def tarama_dongusu():
                                 f"⏰ *Saat:* {get_kazak_time().strftime('%H:%M:%S')}"
                             )
                             send_telegram_msg(sinyal_msg)
-                            print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 🎯 Sinyal: {s}")
                 except: continue
-            
-            print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 😴 Beklemede...")
             await asyncio.sleep(60)
         except: await asyncio.sleep(10)
 
