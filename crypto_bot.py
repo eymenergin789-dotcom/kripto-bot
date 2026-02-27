@@ -169,16 +169,16 @@ def trade_takip(self):
         try:
             for trade in self.active_trades[:]:
                 if trade.get("locked", False):
-                    continue  # Bu trade zaten kontrol edildi
+                    continue
 
                 ticker = EXCHANGE.fetch_ticker(trade["symbol"])
                 current_price = ticker["last"]
 
                 profit_loss = 0
                 if trade["side"] == "LONG":
-    if current_price >= trade["tp"]:
-        profit_loss = (trade["tp"] - trade["entry"]) * DEFAULT_LEVERAGE
-        send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
+if current_price >= trade["tp"]:   # <- burası yanlış girintili
+    profit_loss = (trade["tp"] - trade["entry"]) * DEFAULT_LEVERAGE
+    send_telegram_msg(f"✅ TP GELDİ: {trade['symbol']} | Kâr: {profit_loss:.2f}$")
         trade["locked"] = True
         self.daily_report["TP"] += 1
         self.daily_report["profit"] += profit_loss
@@ -233,5 +233,6 @@ def gun_sonu_raporu_otomatik(self):
 if __name__ == "__main__":
     app = CryptoApp()
     app.mainloop()
+
 
 
