@@ -1,4 +1,4 @@
-    import ccxt
+import ccxt
 import pandas as pd
 import asyncio
 import time
@@ -161,3 +161,4 @@ if __name__ == "__main__":
     asyncio.run(main())
         
         
+
