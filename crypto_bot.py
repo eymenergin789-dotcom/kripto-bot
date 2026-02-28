@@ -18,7 +18,7 @@ def get_kazak_time():
 
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 3.5      
-SL_PERCENT = 0.01        
+SL_PERCENT = 0.06      
 
 aktif_islemler = {} 
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": get_kazak_time().strftime("%Y-%m-%d")}
@@ -173,3 +173,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
