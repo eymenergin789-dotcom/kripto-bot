@@ -2,7 +2,7 @@ import ccxt
 import pandas as pd
 import asyncio
 import os
-import request
+import requests
 import datetime
 datetime.datetime.now(datetime.UTC)
 
@@ -174,5 +174,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
