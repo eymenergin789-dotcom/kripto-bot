@@ -3,8 +3,7 @@ import pandas as pd
 import asyncio
 import os
 import requests
-import datetime
-datetime.datetime.now(datetime.UTC)
+from datetime import datetime, timedelta, timezone # timezone eklendi
 
 # --- AYARLAR ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -14,12 +13,14 @@ EXCHANGE = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'
 LEVERAGE = 20           
 TEST_AMOUNT = 100       
 
+# HATA BURADAYDI, DÜZELTİLDİ: Modern Python saat ayarı
 def get_kazak_time():
-    return datetime.utcnow() + timedelta(hours=5)
+    # Artık utcnow() yerine UTC objesi kullanarak 5 saat ekliyoruz
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5)
 
 VOL_THRESHOLD = 500000    
 VOL_MULTIPLIER = 3.5      
-SL_PERCENT = 0.06      
+SL_PERCENT = 0.01        
 
 aktif_islemler = {} 
 gunluk_stats = {"tp": 0, "sl": 0, "tarih": get_kazak_time().strftime("%Y-%m-%d")}
@@ -44,9 +45,10 @@ def calculate_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs.iloc[-1]))
 
-# --- TAKİP SİSTEMİ (Kademeli & Zengin Raporlama) ---
+# --- TAKİP SİSTEMİ (Zengin Raporlama) ---
 async def takip_sistemi():
     global gunluk_stats
+    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] ✅ Takip Sistemi Başlatıldı.")
     while True:
         try:
             simdi = get_kazak_time()
@@ -57,8 +59,7 @@ async def takip_sistemi():
                     curr_price = tickers[s]['last']
                     islem = aktif_islemler[s]
                     
-                    # Hedef Kontrolü (TP1, TP2, TP3)
-                    for i in range(3): # İlk 3 hedef için ara rapor
+                    for i in range(3):
                         tp_no = i + 1
                         target = islem['tp_targets'][i]
                         if tp_no not in islem['reached_tps']:
@@ -84,7 +85,6 @@ async def takip_sistemi():
                                 )
                                 send_telegram_msg(msg)
 
-                    # Final Kontrol (TP4 veya Stop)
                     sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
                              (islem['side'] == "SHORT" and curr_price >= islem['sl'])
                     tp4_target = islem['tp_targets'][3]
@@ -121,9 +121,9 @@ async def takip_sistemi():
             await asyncio.sleep(2)
         except: await asyncio.sleep(5)
 
-# --- TARAMA DÖNGÜSÜ (Zengin Giriş Mesajı) ---
+# --- TARAMA DÖNGÜSÜ ---
 async def tarama_dongusu():
-    send_telegram_msg("🚀 *Sniper Eymen Ava Başladı")
+    send_telegram_msg("🚀 *Sniper v3.8 Aktif!* \nHatalar giderildi, operasyon başlıyor.")
     while True:
         try:
             EXCHANGE.load_markets()
@@ -152,7 +152,7 @@ async def tarama_dongusu():
                             aktif_islemler[s] = {'side': side, 'entry': entry, 'tp_targets': targets, 'sl': sl, 'reached_tps': []}
                             
                             sinyal_msg = (
-                                f"📊 *Coin:* #{s.replace(':USDT', '')} USDT\n"
+                                f"📊 *Coin:* #{s.replace(':USDT', '')}\n"
                                 f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n"
                                 f"⚡ *Kaldıraç:* {LEVERAGE}x\n\n"
                                 f"🔸 *Fiyat:* {fiyat_format(entry)}\n\n"
@@ -174,6 +174,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
