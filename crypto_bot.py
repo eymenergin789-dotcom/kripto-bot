@@ -43,10 +43,9 @@ def calculate_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs.iloc[-1]))
 
-# --- TAKİP SİSTEMİ (Operasyon Modu) ---
+# --- TAKİP SİSTEMİ (Kademeli & Zengin Raporlama) ---
 async def takip_sistemi():
     global gunluk_stats
-    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] ✅ Operasyonel Takip Aktif.")
     while True:
         try:
             simdi = get_kazak_time()
@@ -57,13 +56,13 @@ async def takip_sistemi():
                     curr_price = tickers[s]['last']
                     islem = aktif_islemler[s]
                     
-                    # Kademeli Hedef Kontrolü
-                    for i, target in enumerate(islem['tp_targets']):
+                    # Hedef Kontrolü (TP1, TP2, TP3)
+                    for i in range(3): # İlk 3 hedef için ara rapor
                         tp_no = i + 1
+                        target = islem['tp_targets'][i]
                         if tp_no not in islem['reached_tps']:
                             hit = (islem['side'] == "LONG" and curr_price >= target) or \
                                   (islem['side'] == "SHORT" and curr_price <= target)
-                            
                             if hit:
                                 islem['reached_tps'].append(tp_no)
                                 gunluk_stats["tp"] += 1
@@ -76,25 +75,28 @@ async def takip_sistemi():
                                     f"🎯 *HEDEF {tp_no} VURULDU!* 🔥\n"
                                     f"━━━━━━━━━━━━━━━\n"
                                     f"🪙 *Coin:* #{s.replace(':USDT', '')}\n"
+                                    f"📥 *Giriş:* {fiyat_format(islem['entry'])}\n"
+                                    f"🏁 *Anlık:* {fiyat_format(curr_price)}\n"
                                     f"📈 *Kâr:* %{k_yuzde:.2f} ({d_kazanc:+.2f}$)\n"
                                     f"⚡ *Kaldıraç:* {LEVERAGE}x\n"
                                     f"🛰 *Durum:* Takip Sürüyor..."
                                 )
                                 send_telegram_msg(msg)
 
-                    # Stop Kontrolü
+                    # Final Kontrol (TP4 veya Stop)
                     sl_hit = (islem['side'] == "LONG" and curr_price <= islem['sl']) or \
                              (islem['side'] == "SHORT" and curr_price >= islem['sl'])
-                    
-                    # TÜM HEDEFLERİN İMHASI VEYA STOP
-                    all_tps_hit = len(islem['reached_tps']) == len(islem['tp_targets'])
+                    tp4_target = islem['tp_targets'][3]
+                    tp4_hit = (islem['side'] == "LONG" and curr_price >= tp4_target) or \
+                              (islem['side'] == "SHORT" and curr_price <= tp4_target)
 
-                    if sl_hit or all_tps_hit:
+                    if sl_hit or tp4_hit:
                         if sl_hit:
                             header = "❌ *STOP OLUNDU (SL)*"
                             gunluk_stats["sl"] += 1
                         else:
-                            header = "💀 *TÜM HEDEFLER İMHA EDİLDİ* 💀\n🏁 *TAKİP BIRAKILDI*"
+                            header = "💀 *TÜM HEDEFLER İMHA EDİLDİ* 💀\n🏁 *OPERASYON TAMAMLANDI*"
+                            gunluk_stats["tp"] += 1
                         
                         raw_degisim = ((curr_price - islem['entry']) / islem['entry'])
                         if islem['side'] == "SHORT": raw_degisim = -raw_degisim
@@ -105,20 +107,22 @@ async def takip_sistemi():
                             f"{header}\n"
                             f"━━━━━━━━━━━━━━━\n"
                             f"🪙 *Coin:* #{s.replace(':USDT', '')}\n"
+                            f"⚖️ *Yön:* {islem['side']}\n"
                             f"📥 *Giriş:* {fiyat_format(islem['entry'])}\n"
                             f"🏁 *Final:* {fiyat_format(curr_price)}\n"
+                            f"⚡ *Kaldıraç:* {LEVERAGE}x\n"
                             f"📈 *Net:* %{k_yuzde:.2f} ({d_kazanc:+.2f}$)\n"
-                            f"📊 *Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
+                            f"⏰ *Saat:* {simdi.strftime('%H:%M:%S')}\n"
+                            f"📊 *Günlük Skor:* {gunluk_stats['tp']} TP / {gunluk_stats['sl']} SL"
                         )
                         send_telegram_msg(rapor)
                         aktif_islemler.pop(s)
             await asyncio.sleep(2)
         except: await asyncio.sleep(5)
 
-# --- TARAMA DÖNGÜSÜ ---
+# --- TARAMA DÖNGÜSÜ (Zengin Giriş Mesajı) ---
 async def tarama_dongusu():
-    print(f"[{get_kazak_time().strftime('%H:%M:%S')}] 🚀 Sniper v3.5 Başlatıldı.")
-    send_telegram_msg("🎯 *Sniper v3.5 Aktif!* \nKademeli İmha ve Final Raporlama Devrede.")
+    send_telegram_msg("🚀 *Sniper Eymen Ava Başladı")
     while True:
         try:
             EXCHANGE.load_markets()
@@ -148,13 +152,15 @@ async def tarama_dongusu():
                             
                             sinyal_msg = (
                                 f"📊 *Coin:* #{s.replace(':USDT', '')} USDT\n"
-                                f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side} | {LEVERAGE}x\n\n"
-                                f"🔸 *Giriş:* {fiyat_format(entry)}\n"
+                                f"{'📈' if side == 'LONG' else '📉'} *Yön:* {side}\n"
+                                f"⚡ *Kaldıraç:* {LEVERAGE}x\n\n"
+                                f"🔸 *Fiyat:* {fiyat_format(entry)}\n\n"
                                 f"🎯 *TP1:* {fiyat_format(targets[0])}\n"
                                 f"🎯 *TP2:* {fiyat_format(targets[1])}\n"
                                 f"🎯 *TP3:* {fiyat_format(targets[2])}\n"
                                 f"🎯 *TP4:* {fiyat_format(targets[3])}\n"
                                 f"⛔️ *Stop:* {fiyat_format(sl)}\n\n"
+                                f"📱 *RSI:* {int(rsi_val)}\n"
                                 f"⏰ *Saat:* {get_kazak_time().strftime('%H:%M:%S')}"
                             )
                             send_telegram_msg(sinyal_msg)
