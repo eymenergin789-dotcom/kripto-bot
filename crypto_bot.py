@@ -2,8 +2,9 @@ import ccxt
 import pandas as pd
 import asyncio
 import os
-import requests
-from datetime import datetime, timedelta
+import request
+import datetime
+datetime.datetime.now(datetime.UTC)
 
 # --- AYARLAR ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -173,4 +174,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
